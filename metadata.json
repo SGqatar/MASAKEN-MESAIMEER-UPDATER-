@@ -1,0 +1,6 @@
+{
+  "name": "Masaken Mesaimeer",
+  "description": "Offline-first native property management operations console for Masaken Mesaimeer (Doha, Qatar) with Key & Access Card Register, PM Visitors & Maintenance Log, single-page Padel & Football Log, native reminders, and .xlsx/.csv/.json import & export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
