@@ -1,0 +1,277 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // -----------------------------------------------------------------------
+    // Core Helpers
+    // -----------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string &&
+        id.size() >= 1 &&
+        id.size() <= 128 &&
+        !id.matches('.*[/\\\\].*');
+    }
+
+    function isTimestampValid(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function isStringWithin(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
+    }
+
+    function isOptionalString(data, field, maxLen) {
+      return !(field in data) || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    // -----------------------------------------------------------------------
+    // Entity Validators
+    // -----------------------------------------------------------------------
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+        'uid', 'email', 'displayName', 'role', 'lastSignInAt', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'uid', 'email', 'displayName', 'role', 'lastSignInAt', 'createdAt', 'updatedAt'
+      ]) &&
+      data.uid == userId &&
+      isStringWithin(data.email, 0, 254) &&
+      isStringWithin(data.displayName, 0, 120) &&
+      data.role == 'operator' &&
+      isTimestampValid(data.lastSignInAt) &&
+      isTimestampValid(data.createdAt) &&
+      isTimestampValid(data.updatedAt);
+    }
+
+    function isValidKeyRegister(data, keyId) {
+      return data.keys().hasAll([
+        'si', 'dateOut', 'timeOut', 'flatUnitLocation', 'keyCardType',
+        'purpose', 'issuedTo', 'qidOrNote', 'dateIn', 'timeIn',
+        'returnedBy', 'remarks', 'status', 'updatedAtMillis', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'si', 'dateOut', 'timeOut', 'flatUnitLocation', 'keyCardType',
+        'purpose', 'issuedTo', 'qidOrNote', 'dateIn', 'timeIn',
+        'returnedBy', 'remarks', 'status', 'updatedAtMillis', 'createdAt', 'updatedAt'
+      ]) &&
+      data.si is int && data.si >= 1 && string(data.si) == keyId &&
+      isStringWithin(data.dateOut, 0, 40) &&
+      isStringWithin(data.timeOut, 0, 40) &&
+      isStringWithin(data.flatUnitLocation, 0, 120) &&
+      isStringWithin(data.keyCardType, 0, 120) &&
+      isStringWithin(data.purpose, 0, 500) &&
+      isStringWithin(data.issuedTo, 0, 160) &&
+      isStringWithin(data.qidOrNote, 0, 200) &&
+      isStringWithin(data.dateIn, 0, 40) &&
+      isStringWithin(data.timeIn, 0, 40) &&
+      isStringWithin(data.returnedBy, 0, 160) &&
+      isStringWithin(data.remarks, 0, 500) &&
+      data.status in ['Key returned', 'Key issued', 'Key issued to tenant', 'Key not yet returned'] &&
+      data.updatedAtMillis is int && data.updatedAtMillis >= 0 &&
+      isTimestampValid(data.createdAt) &&
+      isTimestampValid(data.updatedAt);
+    }
+
+    function isValidVisitorDay(data, dateIsoId) {
+      return data.keys().hasAll([
+        'dateIso', 'displayDate', 'monthKey', 'visitorCount', 'viewingCount',
+        'flatDetails', 'notes', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'dateIso', 'displayDate', 'monthKey', 'visitorCount', 'viewingCount',
+        'flatDetails', 'notes', 'createdAt', 'updatedAt'
+      ]) &&
+      data.dateIso == dateIsoId &&
+      isStringWithin(data.dateIso, 1, 20) &&
+      isStringWithin(data.displayDate, 0, 40) &&
+      isStringWithin(data.monthKey, 0, 20) &&
+      data.visitorCount is int && data.visitorCount >= 0 &&
+      data.viewingCount is int && data.viewingCount >= 0 &&
+      isStringWithin(data.flatDetails, 0, 500) &&
+      isStringWithin(data.notes, 0, 500) &&
+      isTimestampValid(data.createdAt) &&
+      isTimestampValid(data.updatedAt);
+    }
+
+    function isValidMaintenanceRequest(data, reqId) {
+      return data.keys().hasAll([
+        'sn', 'date', 'names', 'phoneNumber', 'workOrderNumber',
+        'qidNumber', 'flatDetails', 'requestDetails', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'sn', 'date', 'names', 'phoneNumber', 'workOrderNumber',
+        'qidNumber', 'flatDetails', 'requestDetails', 'createdAt', 'updatedAt'
+      ]) &&
+      data.sn is int && data.sn >= 1 && string(data.sn) == reqId &&
+      isStringWithin(data.date, 0, 40) &&
+      isStringWithin(data.names, 0, 160) &&
+      isStringWithin(data.phoneNumber, 0, 60) &&
+      isStringWithin(data.workOrderNumber, 0, 80) &&
+      isStringWithin(data.qidNumber, 0, 60) &&
+      isStringWithin(data.flatDetails, 0, 120) &&
+      isStringWithin(data.requestDetails, 0, 1000) &&
+      isTimestampValid(data.createdAt) &&
+      isTimestampValid(data.updatedAt);
+    }
+
+    function isValidSportsBooking(data, bookingId) {
+      return data.keys().hasAll([
+        'sn', 'sport', 'date', 'time', 'name', 'unitDetails',
+        'discount', 'referenceNo', 'durationPlayed', 'remarks', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'sn', 'sport', 'date', 'time', 'name', 'unitDetails',
+        'discount', 'referenceNo', 'durationPlayed', 'remarks', 'attachmentPath', 'createdAt', 'updatedAt'
+      ]) &&
+      data.sn is int && data.sn >= 1 && string(data.sn) == bookingId &&
+      data.sport in ['FOOTBALL', 'PADEL'] &&
+      isStringWithin(data.date, 0, 40) &&
+      isStringWithin(data.time, 0, 40) &&
+      isStringWithin(data.name, 0, 160) &&
+      isStringWithin(data.unitDetails, 0, 120) &&
+      isStringWithin(data.discount, 0, 60) &&
+      isStringWithin(data.referenceNo, 0, 80) &&
+      data.durationPlayed is number && data.durationPlayed >= 0 && data.durationPlayed <= 24 &&
+      isStringWithin(data.remarks, 0, 500) &&
+      isOptionalString(data, 'attachmentPath', 500) &&
+      isTimestampValid(data.createdAt) &&
+      isTimestampValid(data.updatedAt);
+    }
+
+    function isValidOpsReminder(data, reminderId) {
+      return data.keys().hasAll([
+        'id', 'type', 'title', 'message', 'scheduledAtMillis',
+        'done', 'checklistMask', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'type', 'title', 'message', 'relatedKeySi', 'scheduledAtMillis',
+        'snoozedUntilMillis', 'done', 'checklistMask', 'createdAt', 'updatedAt'
+      ]) &&
+      data.id == reminderId &&
+      isStringWithin(data.id, 1, 100) &&
+      data.type in ['DAILY_0740', 'SAT_AUDIT_0900', 'KEY_NEXT_DAY'] &&
+      isStringWithin(data.title, 1, 200) &&
+      isStringWithin(data.message, 0, 500) &&
+      (!( 'relatedKeySi' in data ) || (data.relatedKeySi is int && data.relatedKeySi >= 1)) &&
+      data.scheduledAtMillis is int && data.scheduledAtMillis >= 0 &&
+      (!( 'snoozedUntilMillis' in data ) || (data.snoozedUntilMillis is int && data.snoozedUntilMillis >= 0)) &&
+      data.done is bool &&
+      data.checklistMask is int && data.checklistMask >= 0 &&
+      isTimestampValid(data.createdAt) &&
+      isTimestampValid(data.updatedAt);
+    }
+
+    // -----------------------------------------------------------------------
+    // Collections & Security Rules
+    // -----------------------------------------------------------------------
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId);
+      allow update: if isOwner(userId) &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().role == existing().role &&
+        incoming().createdAt == existing().createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'email', 'displayName', 'lastSignInAt', 'updatedAt'
+        ]);
+      allow delete: if false;
+
+      match /keys/{keyId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidId(keyId) &&
+          isValidKeyRegister(incoming(), keyId);
+        allow update: if isOwner(userId) &&
+          isValidId(keyId) &&
+          isValidKeyRegister(incoming(), keyId) &&
+          incoming().si == existing().si &&
+          incoming().createdAt == existing().createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      match /visitorDays/{dateIso} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidId(dateIso) &&
+          isValidVisitorDay(incoming(), dateIso);
+        allow update: if isOwner(userId) &&
+          isValidId(dateIso) &&
+          isValidVisitorDay(incoming(), dateIso) &&
+          incoming().dateIso == existing().dateIso &&
+          incoming().createdAt == existing().createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      match /maintenanceRequests/{reqId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidId(reqId) &&
+          isValidMaintenanceRequest(incoming(), reqId);
+        allow update: if isOwner(userId) &&
+          isValidId(reqId) &&
+          isValidMaintenanceRequest(incoming(), reqId) &&
+          incoming().sn == existing().sn &&
+          incoming().createdAt == existing().createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      match /sportsBookings/{bookingId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidId(bookingId) &&
+          isValidSportsBooking(incoming(), bookingId);
+        allow update: if isOwner(userId) &&
+          isValidId(bookingId) &&
+          isValidSportsBooking(incoming(), bookingId) &&
+          incoming().sn == existing().sn &&
+          incoming().createdAt == existing().createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      match /reminders/{reminderId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidId(reminderId) &&
+          isValidOpsReminder(incoming(), reminderId);
+        allow update: if isOwner(userId) &&
+          isValidId(reminderId) &&
+          isValidOpsReminder(incoming(), reminderId) &&
+          incoming().id == existing().id &&
+          incoming().type == existing().type &&
+          incoming().createdAt == existing().createdAt;
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // Default deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

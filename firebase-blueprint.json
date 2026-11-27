@@ -1,0 +1,163 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated operator profile and last sign-in audit metadata.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID matching document ID." },
+        "email": { "type": "string", "description": "Signed-in Google account email." },
+        "displayName": { "type": "string", "description": "Display name of operator." },
+        "role": { "type": "string", "description": "Operator role label." },
+        "lastSignInAt": { "type": "string", "format": "date-time", "description": "Server timestamp of latest sign-in." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Immutable profile creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp." }
+      },
+      "required": ["uid", "email", "displayName", "role", "lastSignInAt", "createdAt", "updatedAt"]
+    },
+    "KeyRegisterDoc": {
+      "title": "KeyRegisterDoc",
+      "description": "WSF-PMD-F-07 Key / Access Card Register entry synced per user.",
+      "type": "object",
+      "properties": {
+        "si": { "type": "integer", "description": "Serial index (SI >= 1)." },
+        "dateOut": { "type": "string" },
+        "timeOut": { "type": "string" },
+        "flatUnitLocation": { "type": "string" },
+        "keyCardType": { "type": "string" },
+        "purpose": { "type": "string" },
+        "issuedTo": { "type": "string" },
+        "qidOrNote": { "type": "string" },
+        "dateIn": { "type": "string" },
+        "timeIn": { "type": "string" },
+        "returnedBy": { "type": "string" },
+        "remarks": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["Key returned", "Key issued", "Key issued to tenant", "Key not yet returned"]
+        },
+        "updatedAtMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "si", "dateOut", "timeOut", "flatUnitLocation", "keyCardType",
+        "purpose", "issuedTo", "qidOrNote", "dateIn", "timeIn",
+        "returnedBy", "remarks", "status", "updatedAtMillis", "createdAt", "updatedAt"
+      ]
+    },
+    "VisitorDayDoc": {
+      "title": "VisitorDayDoc",
+      "description": "Daily PM Visitors and Apartment Viewing log record.",
+      "type": "object",
+      "properties": {
+        "dateIso": { "type": "string" },
+        "displayDate": { "type": "string" },
+        "monthKey": { "type": "string" },
+        "visitorCount": { "type": "integer" },
+        "viewingCount": { "type": "integer" },
+        "flatDetails": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "dateIso", "displayDate", "monthKey", "visitorCount", "viewingCount",
+        "flatDetails", "notes", "createdAt", "updatedAt"
+      ]
+    },
+    "MaintenanceRequestDoc": {
+      "title": "MaintenanceRequestDoc",
+      "description": "Maintenance Request & Work Order log record.",
+      "type": "object",
+      "properties": {
+        "sn": { "type": "integer" },
+        "date": { "type": "string" },
+        "names": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "workOrderNumber": { "type": "string" },
+        "qidNumber": { "type": "string" },
+        "flatDetails": { "type": "string" },
+        "requestDetails": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "sn", "date", "names", "phoneNumber", "workOrderNumber",
+        "qidNumber", "flatDetails", "requestDetails", "createdAt", "updatedAt"
+      ]
+    },
+    "SportsBookingDoc": {
+      "title": "SportsBookingDoc",
+      "description": "Padel & Football Court booking entry.",
+      "type": "object",
+      "properties": {
+        "sn": { "type": "integer" },
+        "sport": { "type": "string", "enum": ["FOOTBALL", "PADEL"] },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "name": { "type": "string" },
+        "unitDetails": { "type": "string" },
+        "discount": { "type": "string" },
+        "referenceNo": { "type": "string" },
+        "durationPlayed": { "type": "number" },
+        "remarks": { "type": "string" },
+        "attachmentPath": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "sn", "sport", "date", "time", "name", "unitDetails",
+        "discount", "referenceNo", "durationPlayed", "remarks", "createdAt", "updatedAt"
+      ]
+    },
+    "OpsReminderDoc": {
+      "title": "OpsReminderDoc",
+      "description": "Operational reminder and daily checklist state.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["DAILY_0740", "SAT_AUDIT_0900", "KEY_NEXT_DAY"] },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "relatedKeySi": { "type": "integer" },
+        "scheduledAtMillis": { "type": "integer" },
+        "snoozedUntilMillis": { "type": "integer" },
+        "done": { "type": "boolean" },
+        "checklistMask": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "type", "title", "message", "scheduledAtMillis",
+        "done", "checklistMask", "createdAt", "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-isolated operator profile."
+    },
+    "/users/{userId}/keys/{keyId}": {
+      "schema": { "$ref": "#/entities/KeyRegisterDoc" },
+      "description": "Owner-isolated Key Register rows."
+    },
+    "/users/{userId}/visitorDays/{dateIso}": {
+      "schema": { "$ref": "#/entities/VisitorDayDoc" },
+      "description": "Owner-isolated PM Visitor daily counts."
+    },
+    "/users/{userId}/maintenanceRequests/{reqId}": {
+      "schema": { "$ref": "#/entities/MaintenanceRequestDoc" },
+      "description": "Owner-isolated Maintenance Work Orders."
+    },
+    "/users/{userId}/sportsBookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/SportsBookingDoc" },
+      "description": "Owner-isolated Padel & Football court bookings."
+    },
+    "/users/{userId}/reminders/{reminderId}": {
+      "schema": { "$ref": "#/entities/OpsReminderDoc" },
+      "description": "Owner-isolated operational reminders & daily checklists."
+    }
+  }
+}

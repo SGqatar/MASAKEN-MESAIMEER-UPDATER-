@@ -1,5 +1,6 @@
 package com.example.data
 
+import com.example.data.cloud.FirestoreSyncRepository
 import com.example.data.db.KeyRegisterEntity
 import com.example.data.db.KeyStatus
 import com.example.data.db.MaintenanceRequestEntity
@@ -16,7 +17,8 @@ import java.util.TimeZone
 
 class OperationsRepository(
     private val db: MasakenDatabase,
-    private val scheduler: OpsReminderScheduler
+    private val scheduler: OpsReminderScheduler,
+    private val cloudSync: FirestoreSyncRepository? = null
 ) {
     val keysFlow: Flow<List<KeyRegisterEntity>> = db.keyRegisterDao().observeAll()
     val visitorsFlow: Flow<List<VisitorDayEntity>> = db.visitorDayDao().observeAll()
@@ -37,6 +39,7 @@ class OperationsRepository(
         }
         val clean = entry.copy(updatedAtMillis = System.currentTimeMillis())
         db.keyRegisterDao().upsert(clean)
+        cloudSync?.syncKey(clean)
 
         val reminderId = "key_next_day_${clean.si}"
         if (clean.isUnreturnedAlert) {
@@ -60,12 +63,14 @@ class OperationsRepository(
             )
             db.opsReminderDao().upsert(reminder)
             scheduler.scheduleReminder(reminder)
+            cloudSync?.syncReminder(reminder)
         } else {
             val existing = db.opsReminderDao().getById(reminderId)
             if (existing != null) {
                 val completed = existing.copy(isDone = true, snoozedUntilMillis = null)
                 db.opsReminderDao().upsert(completed)
                 scheduler.cancelReminder(reminderId)
+                cloudSync?.syncReminder(completed)
             }
         }
         return true
@@ -109,6 +114,7 @@ class OperationsRepository(
             )
         }
         db.keyRegisterDao().upsertAll(fixed)
+        cloudSync?.syncKeysBatch(fixed)
         return fixed.size
     }
 
@@ -127,6 +133,7 @@ class OperationsRepository(
             )
         }
         db.visitorDayDao().upsert(updated)
+        cloudSync?.syncVisitorDay(updated)
     }
 
     suspend fun incrementTodayViewing(
@@ -158,27 +165,40 @@ class OperationsRepository(
             )
         }
         db.visitorDayDao().upsert(updated)
+        cloudSync?.syncVisitorDay(updated)
     }
 
     suspend fun saveVisitorDay(day: VisitorDayEntity) {
         db.visitorDayDao().upsert(day)
+        cloudSync?.syncVisitorDay(day)
     }
 
     suspend fun saveMaintenanceRequest(item: MaintenanceRequestEntity) {
-        db.maintenanceRequestDao().upsert(item)
+        val finalSn = if (item.sn == 0) {
+            (db.maintenanceRequestDao().getAllOnce().maxOfOrNull { it.sn } ?: 0) + 1
+        } else {
+            item.sn
+        }
+        val clean = item.copy(sn = finalSn)
+        db.maintenanceRequestDao().upsert(clean)
+        cloudSync?.syncMaintenance(clean)
     }
 
     suspend fun deleteMaintenanceRequest(sn: Int) {
         db.maintenanceRequestDao().deleteBySn(sn)
+        cloudSync?.deleteMaintenance(sn)
     }
 
     suspend fun saveSportsBooking(booking: SportsBookingEntity) {
         val finalSn = if (booking.sn == 0) db.sportsBookingDao().getMaxSn() + 1 else booking.sn
-        db.sportsBookingDao().upsert(booking.copy(sn = finalSn))
+        val clean = booking.copy(sn = finalSn)
+        db.sportsBookingDao().upsert(clean)
+        cloudSync?.syncSportsBooking(clean)
     }
 
     suspend fun deleteSportsBooking(sn: Int) {
         db.sportsBookingDao().deleteBySn(sn)
+        cloudSync?.deleteSportsBooking(sn)
     }
 
     suspend fun toggleReminderChecklist(reminder: OpsReminderEntity, bitIndex: Int) {
@@ -190,6 +210,7 @@ class OperationsRepository(
         )
         db.opsReminderDao().upsert(updated)
         if (allChecked) scheduler.cancelReminder(updated.id) else scheduler.scheduleReminder(updated)
+        cloudSync?.syncReminder(updated)
     }
 
     suspend fun snoozeReminder30Min(reminder: OpsReminderEntity) {
@@ -199,6 +220,7 @@ class OperationsRepository(
         )
         db.opsReminderDao().upsert(snoozed)
         scheduler.scheduleReminder(snoozed)
+        cloudSync?.syncReminder(snoozed)
     }
 
     suspend fun setReminderDone(reminder: OpsReminderEntity, done: Boolean) {
@@ -208,5 +230,6 @@ class OperationsRepository(
         )
         db.opsReminderDao().upsert(updated)
         if (done) scheduler.cancelReminder(updated.id) else scheduler.scheduleReminder(updated)
+        cloudSync?.syncReminder(updated)
     }
 }

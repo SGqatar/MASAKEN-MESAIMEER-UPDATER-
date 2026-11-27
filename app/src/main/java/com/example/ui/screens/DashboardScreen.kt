@@ -22,7 +22,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.HomeWork
@@ -59,6 +63,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.cloud.CloudSyncState
 import com.example.data.db.KeyRegisterEntity
 import com.example.data.db.MaintenanceRequestEntity
 import com.example.data.db.OpsReminderEntity
@@ -114,6 +119,9 @@ fun DashboardScreen(
     onOpenLiveIngest: () -> Unit,
     onExportXlsx: () -> Unit,
     onExportJson: () -> Unit,
+    operatorLabel: String = "",
+    cloudSyncState: CloudSyncState = CloudSyncState.SignedOut,
+    onSignOut: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val unreturnedKeys = keys.filter { it.isUnreturnedAlert }
@@ -198,6 +206,72 @@ fun DashboardScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = OpsSteel
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Signed-in Operator Session & Cloud Sync Strip
+        item {
+            StaggeredMotionReveal(delayMillis = 25) {
+                val (syncLabel, syncColor, syncIcon) = when (cloudSyncState) {
+                    is CloudSyncState.Synced -> Triple("CLOUD SYNCED", OpsEmerald, Icons.Filled.CloudDone)
+                    is CloudSyncState.Syncing -> Triple("SYNCING...", OpsCyan, Icons.Filled.CloudSync)
+                    is CloudSyncState.Error -> Triple("OFFLINE QUEUE", OpsAmber, Icons.Filled.CloudOff)
+                    is CloudSyncState.SignedOut -> Triple("SIGNED OUT", OpsSteel, Icons.Filled.CloudOff)
+                }
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = OpsConsole),
+                    border = BorderStroke(1.dp, OpsBorder),
+                    shape = MaterialTheme.shapes.medium
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = syncIcon,
+                                contentDescription = syncLabel,
+                                tint = syncColor,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = operatorLabel.ifBlank { "Signed-in Operator" },
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = OpsWhite
+                                )
+                                Text(
+                                    text = syncLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = syncColor
+                                )
+                            }
+                        }
+                        SpringOutlinedButton(
+                            onClick = onSignOut,
+                            border = BorderStroke(1.dp, OpsBorder),
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .testTag("sign_out_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Logout,
+                                contentDescription = "Sign out",
+                                tint = OpsSteel,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("Sign Out", color = OpsWhite)
                         }
                     }
                 }

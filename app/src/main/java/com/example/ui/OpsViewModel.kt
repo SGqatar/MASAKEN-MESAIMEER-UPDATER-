@@ -15,6 +15,7 @@ import com.example.data.db.VisitorDayEntity
 import com.example.data.sync.ImportPreviewResult
 import com.example.data.sync.ImportedWorkbookBundle
 import com.example.data.sync.IngestTarget
+import com.example.data.cloud.CloudSyncState
 import com.example.notifications.OpsNotificationHelper
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,9 +66,12 @@ data class MonthlyVisitorSummary(
 class OpsViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as MasakenOpsApp
     private val repo = app.repository
+    private val cloudSync = app.firestoreSyncRepository
     private val sync = app.workbookSyncManager
     private val parser = app.bookingParserService
     private val universalPhotoIngest = app.universalPhotoIngestService
+
+    val cloudSyncState: StateFlow<CloudSyncState> = cloudSync.syncState
 
     val keys: StateFlow<List<KeyRegisterEntity>> = repo.keysFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -170,7 +174,13 @@ class OpsViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             repo.ensureSeeded()
+            cloudSync.startSessionSync()
         }
+    }
+
+    override fun onCleared() {
+        cloudSync.detachListeners()
+        super.onCleared()
     }
 
     fun setKeyFilter(mode: KeyFilterMode) {

@@ -3,6 +3,7 @@ package com.example
 import android.Manifest
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -41,16 +42,21 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.credentials.ClearCredentialStateRequest
+import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -65,13 +71,13 @@ import com.example.ui.OpsViewModel
 import com.example.ui.components.RealTimeIngestSheet
 import com.example.ui.components.opsScreenEnterTransition
 import com.example.ui.components.opsScreenExitTransition
+import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.KeyRegisterScreen
 import com.example.ui.screens.SportsBookingScreen
 import com.example.ui.screens.VisitorsMaintenanceScreen
 import com.example.ui.theme.LocalReducedMotion
 import com.example.ui.theme.MasakenOpsTheme
-import com.example.ui.theme.OpsAmber
 import com.example.ui.theme.OpsCrimson
 import com.example.ui.theme.OpsCyan
 import com.example.ui.theme.OpsCyanDeep
@@ -79,6 +85,12 @@ import com.example.ui.theme.OpsObsidian
 import com.example.ui.theme.OpsSlate
 import com.example.ui.theme.OpsSteel
 import com.example.ui.theme.OpsWhite
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.auth
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 const val ROUTE_DASHBOARD = "dashboard"
 const val ROUTE_KEYS = "keys"
@@ -111,8 +123,61 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MasakenOpsTheme {
-                MasakenOpsRoot(initialNavTarget = initialNavTarget)
+                MasakenAuthGate(initialNavTarget = initialNavTarget)
             }
+        }
+    }
+}
+
+@Composable
+private fun MasakenAuthGate(initialNavTarget: String?) {
+    val context = LocalContext.current
+    val app = remember(context) { context.applicationContext as MasakenOpsApp }
+    val auth = remember(app) { app.firebaseAuth }
+    val scope = rememberCoroutineScope()
+
+    var currentUser by remember { mutableStateOf(auth.currentUser) }
+
+    DisposableEffect(auth) {
+        val listener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+            currentUser = firebaseAuth.currentUser
+        }
+        auth.addAuthStateListener(listener)
+        onDispose {
+            auth.removeAuthStateListener(listener)
+        }
+    }
+
+    val user = currentUser
+    if (user == null) {
+        AuthScreen()
+    } else {
+        key(user.uid) {
+            val opsViewModel: OpsViewModel = viewModel(key = user.uid)
+            val operatorLabel = remember(user) {
+                user.displayName?.takeIf { it.isNotBlank() }
+                    ?: user.email?.takeIf { it.isNotBlank() }
+                    ?: "Authenticated Operator"
+            }
+            MasakenOpsRoot(
+                initialNavTarget = initialNavTarget,
+                operatorLabel = operatorLabel,
+                opsViewModel = opsViewModel,
+                onSignOut = {
+                    scope.launch {
+                        withContext(NonCancellable) {
+                            app.firestoreSyncRepository.detachListeners()
+                            try {
+                                CredentialManager.create(context)
+                                    .clearCredentialState(ClearCredentialStateRequest())
+                            } catch (e: Exception) {
+                                Log.w("Auth", "Clear credential state skipped", e)
+                            }
+                            Firebase.auth.signOut()
+                        }
+                    }
+                }
+            )
         }
     }
 }
@@ -120,12 +185,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MasakenOpsRoot(
     initialNavTarget: String?,
-    opsViewModel: OpsViewModel = viewModel()
+    operatorLabel: String,
+    opsViewModel: OpsViewModel,
+    onSignOut: () -> Unit
 ) {
     val context = LocalContext.current
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val cloudSyncState by opsViewModel.cloudSyncState.collectAsStateWithLifecycle()
     val keys by opsViewModel.keys.collectAsStateWithLifecycle()
     val filteredKeys by opsViewModel.filteredKeys.collectAsStateWithLifecycle()
     val keyFilter by opsViewModel.keyFilter.collectAsStateWithLifecycle()
@@ -334,7 +402,10 @@ private fun MasakenOpsRoot(
                                 },
                                 onExportJson = {
                                     exportJsonLauncher.launch("masaken_mesaimeer_backup.json")
-                                }
+                                },
+                                operatorLabel = operatorLabel,
+                                cloudSyncState = cloudSyncState,
+                                onSignOut = onSignOut
                             )
                         }
 

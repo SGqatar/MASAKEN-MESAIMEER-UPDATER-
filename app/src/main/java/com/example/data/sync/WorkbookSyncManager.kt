@@ -264,9 +264,15 @@ class WorkbookSyncManager(
             bundle.keys.forEach { key ->
                 repository.saveKeyEntry(key)
             }
-            if (bundle.visitors.isNotEmpty()) db.visitorDayDao().upsertAll(bundle.visitors)
-            if (bundle.maintenance.isNotEmpty()) db.maintenanceRequestDao().upsertAll(bundle.maintenance)
-            if (bundle.sports.isNotEmpty()) db.sportsBookingDao().upsertAll(bundle.sports)
+            bundle.visitors.forEach { day ->
+                repository.saveVisitorDay(day)
+            }
+            bundle.maintenance.forEach { req ->
+                repository.saveMaintenanceRequest(req)
+            }
+            bundle.sports.forEach { booking ->
+                repository.saveSportsBooking(booking)
+            }
 
             val summary = buildString {
                 append("Applied real-time update: ")
