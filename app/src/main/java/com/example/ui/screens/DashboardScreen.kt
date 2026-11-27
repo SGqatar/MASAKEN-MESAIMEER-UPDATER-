@@ -1,7 +1,6 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -58,10 +57,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.R
 import com.example.data.cloud.CloudSyncState
 import com.example.data.db.KeyRegisterEntity
@@ -150,8 +151,12 @@ fun DashboardScreen(
                         .clip(MaterialTheme.shapes.large)
                         .background(OpsSlate)
                 ) {
-                    Image(
-                        painter = painterResource(id = R.drawable.img_doha_ops_banner_1795716743874),
+                    val bannerContext = LocalContext.current
+                    AsyncImage(
+                        model = ImageRequest.Builder(bannerContext)
+                            .data(R.drawable.img_doha_ops_banner_1795716743874)
+                            .crossfade(false)
+                            .build(),
                         contentDescription = "Masaken Mesaimeer Doha banner",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

@@ -1,10 +1,12 @@
 package com.example
 
 import android.Manifest
+import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -118,7 +120,10 @@ class MainActivity : ComponentActivity() {
         // STEP 1: Configure App Check with launch intent before any UI, ViewModels, or Firebase operations
         configureAppCheck(this, intent)
 
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+        )
         val initialNavTarget = intent?.getStringExtra(OpsNotificationHelper.EXTRA_NAV_TARGET)
 
         setContent {

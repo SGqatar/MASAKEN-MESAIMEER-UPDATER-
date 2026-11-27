@@ -8,6 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Database(
     entities = [
@@ -51,7 +52,7 @@ abstract class MasakenDatabase : RoomDatabase() {
             }
         }
 
-        suspend fun seedIfEmpty(database: MasakenDatabase) {
+        suspend fun seedIfEmpty(database: MasakenDatabase) = withContext(Dispatchers.IO) {
             if (database.keyRegisterDao().getAllOnce().isEmpty()) {
                 val keys = SeedDataProvider.buildKeyRegisterSeed()
                 database.keyRegisterDao().upsertAll(keys)

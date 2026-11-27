@@ -11,7 +11,9 @@ import com.example.data.db.SportsBookingEntity
 import com.example.data.db.VisitorDayEntity
 import com.example.data.sync.TestRecordFilter
 import com.example.notifications.OpsReminderScheduler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 import java.util.TimeZone
 
@@ -26,7 +28,7 @@ class OperationsRepository(
     val sportsFlow: Flow<List<SportsBookingEntity>> = db.sportsBookingDao().observeAll()
     val remindersFlow: Flow<List<OpsReminderEntity>> = db.opsReminderDao().observeAll()
 
-    suspend fun ensureSeeded() {
+    suspend fun ensureSeeded() = withContext(Dispatchers.IO) {
         MasakenDatabase.seedIfEmpty(db)
         scheduler.syncAll(db.opsReminderDao().getAllOnce())
     }
