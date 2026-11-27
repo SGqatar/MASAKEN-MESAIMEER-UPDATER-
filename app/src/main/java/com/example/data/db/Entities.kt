@@ -6,6 +6,7 @@ import androidx.room.PrimaryKey
 object KeyStatus {
     const val RETURNED = "Key returned"
     const val ISSUED = "Key issued"
+    const val ISSUED_TO_TENANT = "Key issued to tenant"
     const val NOT_YET_RETURNED = "Key not yet returned"
 
     fun isUnreturnedOrActive(status: String): Boolean {

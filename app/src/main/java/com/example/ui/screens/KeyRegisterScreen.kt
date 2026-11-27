@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,7 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -33,19 +34,16 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -68,6 +66,11 @@ import com.example.data.db.KeyStatus
 import com.example.ui.KeyFilterMode
 import com.example.ui.components.LivePulseBeacon
 import com.example.ui.components.OpsStatusPill
+import com.example.ui.components.SpringButton
+import com.example.ui.components.SpringFloatingActionButton
+import com.example.ui.components.SpringListItemContainer
+import com.example.ui.components.SpringOutlinedButton
+import com.example.ui.components.springPressScale
 import com.example.ui.theme.OpsTabularFontFamily
 import com.example.ui.theme.LocalReducedMotion
 import com.example.ui.theme.OpsAmber
@@ -117,7 +120,7 @@ fun KeyRegisterScreen(
         modifier = modifier.fillMaxSize(),
         containerColor = OpsObsidian,
         floatingActionButton = {
-            FloatingActionButton(
+            SpringFloatingActionButton(
                 onClick = {
                     scope.launch {
                         val nextSi = onAllocateNextSi()
@@ -224,7 +227,7 @@ fun KeyRegisterScreen(
                                     color = OpsSteel
                                 )
                             }
-                            Button(
+                            SpringButton(
                                 onClick = onReconcileNovember,
                                 colors = ButtonDefaults.buttonColors(containerColor = OpsAmber, contentColor = OpsObsidian),
                                 modifier = Modifier.testTag("reconcile_nov_keys_button")
@@ -299,12 +302,14 @@ fun KeyRegisterScreen(
                     }
                 }
             } else {
-                items(filteredKeys, key = { it.si }) { entry ->
-                    KeyRegisterRowCard(
-                        entry = entry,
-                        onMarkReturnedClick = { returningEntry = entry },
-                        onEditClick = { editingEntry = entry }
-                    )
+                itemsIndexed(filteredKeys, key = { _, entry -> entry.si }) { index, entry ->
+                    SpringListItemContainer(itemKey = entry.si, index = index) {
+                        KeyRegisterRowCard(
+                            entry = entry,
+                            onMarkReturnedClick = { returningEntry = entry },
+                            onEditClick = { editingEntry = entry }
+                        )
+                    }
                 }
             }
 
@@ -356,14 +361,20 @@ private fun KeyRegisterRowCard(
         label = "keyRowBorder"
     )
 
+    val cardInteraction = remember { MutableInteractionSource() }
     Card(
         colors = CardDefaults.cardColors(containerColor = containerColor),
         border = BorderStroke(1.dp, borderColor),
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier
             .fillMaxWidth()
+            .springPressScale(cardInteraction, pressedScale = 0.98f)
             .testTag("key_row_${entry.si}")
-            .clickable(onClick = onEditClick)
+            .clickable(
+                interactionSource = cardInteraction,
+                indication = androidx.compose.material3.ripple(),
+                onClick = onEditClick
+            )
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -389,10 +400,19 @@ private fun KeyRegisterRowCard(
                         color = OpsWhite
                     )
                 }
+                val isTenantIssued = entry.status.equals(KeyStatus.ISSUED_TO_TENANT, ignoreCase = true)
                 OpsStatusPill(
                     label = entry.status.uppercase(),
-                    containerColor = if (isAlert) Color(0xFF4C111B) else OpsEmeraldDeep,
-                    contentColor = if (isAlert) OpsCrimsonText else OpsEmerald
+                    containerColor = when {
+                        isAlert -> Color(0xFF4C111B)
+                        isTenantIssued -> OpsCyanDeep
+                        else -> OpsEmeraldDeep
+                    },
+                    contentColor = when {
+                        isAlert -> OpsCrimsonText
+                        isTenantIssued -> OpsCyan
+                        else -> OpsEmerald
+                    }
                 )
             }
 
@@ -433,7 +453,7 @@ private fun KeyRegisterRowCard(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedButton(
+                SpringOutlinedButton(
                     onClick = onEditClick,
                     border = BorderStroke(1.dp, OpsBorder),
                     modifier = Modifier.testTag("edit_key_${entry.si}")
@@ -444,7 +464,7 @@ private fun KeyRegisterRowCard(
                 }
                 if (isAlert) {
                     Spacer(Modifier.width(8.dp))
-                    Button(
+                    SpringButton(
                         onClick = onMarkReturnedClick,
                         colors = ButtonDefaults.buttonColors(containerColor = OpsEmerald, contentColor = OpsObsidian),
                         modifier = Modifier.testTag("return_key_${entry.si}")
@@ -504,7 +524,7 @@ private fun MarkKeyReturnedDialog(
             }
         },
         confirmButton = {
-            Button(
+            SpringButton(
                 onClick = { onConfirm(returnedBy, dateIn, timeIn) },
                 colors = ButtonDefaults.buttonColors(containerColor = OpsEmerald, contentColor = OpsObsidian),
                 modifier = Modifier.testTag("confirm_mark_returned")
@@ -561,8 +581,14 @@ private fun KeyEditBottomSheet(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(KeyStatus.ISSUED, KeyStatus.NOT_YET_RETURNED, KeyStatus.RETURNED).forEach { st ->
+                listOf(
+                    KeyStatus.ISSUED,
+                    KeyStatus.NOT_YET_RETURNED,
+                    KeyStatus.ISSUED_TO_TENANT,
+                    KeyStatus.RETURNED
+                ).forEach { st ->
                     val isAlertSt = KeyStatus.isUnreturnedOrActive(st)
+                    val isTenantSt = st == KeyStatus.ISSUED_TO_TENANT
                     FilterChip(
                         selected = status == st,
                         onClick = { status = st },
@@ -570,8 +596,16 @@ private fun KeyEditBottomSheet(
                         colors = FilterChipDefaults.filterChipColors(
                             containerColor = OpsConsole,
                             labelColor = OpsSteel,
-                            selectedContainerColor = if (isAlertSt) OpsCrimsonSurface else OpsEmeraldDeep,
-                            selectedLabelColor = if (isAlertSt) OpsCrimsonText else OpsEmerald
+                            selectedContainerColor = when {
+                                isAlertSt -> OpsCrimsonSurface
+                                isTenantSt -> OpsCyanDeep
+                                else -> OpsEmeraldDeep
+                            },
+                            selectedLabelColor = when {
+                                isAlertSt -> OpsCrimsonText
+                                isTenantSt -> OpsCyan
+                                else -> OpsEmerald
+                            }
                         )
                     )
                 }
@@ -607,10 +641,10 @@ private fun KeyEditBottomSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                SpringOutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
                     Text("Cancel", color = OpsSteel)
                 }
-                Button(
+                SpringButton(
                     onClick = {
                         onSave(
                             initial.copy(

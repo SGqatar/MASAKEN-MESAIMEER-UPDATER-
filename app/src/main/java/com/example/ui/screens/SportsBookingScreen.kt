@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -37,7 +38,6 @@ import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.SportsTennis
 import androidx.compose.material.icons.filled.TextSnippet
 import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -45,12 +45,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -82,6 +80,11 @@ import com.example.ui.components.AnimatedDecimalCounter
 import com.example.ui.components.AnimatedIntCounter
 import com.example.ui.components.LivePulseBeacon
 import com.example.ui.components.OpsStatusPill
+import com.example.ui.components.SpringButton
+import com.example.ui.components.SpringFloatingActionButton
+import com.example.ui.components.SpringListItemContainer
+import com.example.ui.components.SpringOutlinedButton
+import com.example.ui.components.springPressScale
 import com.example.ui.theme.OpsTabularFontFamily
 import com.example.ui.theme.OpsAmber
 import com.example.ui.theme.OpsAmberDeep
@@ -135,7 +138,7 @@ fun SportsBookingScreen(
         modifier = modifier.fillMaxSize(),
         containerColor = OpsObsidian,
         floatingActionButton = {
-            FloatingActionButton(
+            SpringFloatingActionButton(
                 onClick = {
                     onResetAiVision()
                     showQuickParserSheet = true
@@ -315,14 +318,16 @@ fun SportsBookingScreen(
                 }
             }
 
-            items(filteredBookings, key = { it.sn }) { booking ->
-                SportsBookingRowCard(
-                    booking = booking,
-                    onClick = {
-                        onResetAiVision()
-                        editingBooking = booking
-                    }
-                )
+            itemsIndexed(filteredBookings, key = { _, booking -> booking.sn }) { index, booking ->
+                SpringListItemContainer(itemKey = booking.sn, index = index) {
+                    SportsBookingRowCard(
+                        booking = booking,
+                        onClick = {
+                            onResetAiVision()
+                            editingBooking = booking
+                        }
+                    )
+                }
             }
 
             item { Spacer(Modifier.height(72.dp)) }
@@ -385,14 +390,20 @@ private fun SportsBookingRowCard(
     val sportColor = if (isFootball) OpsCyan else OpsEmerald
     val sportDeep = if (isFootball) OpsCyanDeep else OpsEmeraldDeep
 
+    val cardInteraction = remember { MutableInteractionSource() }
     Card(
         colors = CardDefaults.cardColors(containerColor = OpsConsole),
         border = BorderStroke(1.dp, OpsBorder),
         shape = MaterialTheme.shapes.medium,
         modifier = Modifier
             .fillMaxWidth()
+            .springPressScale(cardInteraction, pressedScale = 0.98f)
             .testTag("sports_row_${booking.sn}")
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = cardInteraction,
+                indication = androidx.compose.material3.ripple(),
+                onClick = onClick
+            )
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -559,7 +570,7 @@ private fun SportsQuickEntrySheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedButton(
+                        SpringOutlinedButton(
                             onClick = {
                                 val parsed = onParseTextOffline(rawPasteText, attachmentPath)
                                 sport = parsed.sport
@@ -583,7 +594,7 @@ private fun SportsQuickEntrySheet(
                             Text("Parse Offline", color = OpsCyan)
                         }
 
-                        OutlinedButton(
+                        SpringOutlinedButton(
                             onClick = {
                                 photoPicker.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -616,7 +627,7 @@ private fun SportsQuickEntrySheet(
                             )
                         }
 
-                        Button(
+                        SpringButton(
                             onClick = { onExtractWithGeminiVision(path, rawPasteText) },
                             enabled = aiVisionState !is AiVisionUiState.Extracting,
                             colors = ButtonDefaults.buttonColors(containerColor = OpsAmber, contentColor = OpsObsidian),
@@ -698,8 +709,8 @@ private fun SportsQuickEntrySheet(
             OutlinedTextField(value = remarks, onValueChange = { remarks = it }, label = { Text("REMARKS") }, modifier = Modifier.fillMaxWidth())
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel", color = OpsSteel) }
-                Button(
+                SpringOutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel", color = OpsSteel) }
+                SpringButton(
                     onClick = {
                         onSave(
                             initialBooking.copy(

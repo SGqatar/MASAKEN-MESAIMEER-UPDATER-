@@ -1,6 +1,9 @@
 package com.example.ui.theme
 
 import android.app.Activity
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -8,7 +11,12 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -55,20 +63,52 @@ val OpsShapes = Shapes(
     extraLarge = RoundedCornerShape(24.dp)
 )
 
+private fun isSystemReducedMotion(context: android.content.Context): Boolean {
+    return try {
+        val animatorScale = Settings.Global.getFloat(
+            context.contentResolver,
+            Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f
+        )
+        val transitionScale = Settings.Global.getFloat(
+            context.contentResolver,
+            Settings.Global.TRANSITION_ANIMATION_SCALE,
+            1f
+        )
+        animatorScale == 0f || transitionScale == 0f
+    } catch (_: Exception) {
+        false
+    }
+}
+
 @Composable
 fun MasakenOpsTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
     val view = LocalView.current
-    val reducedMotion = try {
-        Settings.Global.getFloat(
-            context.contentResolver,
-            Settings.Global.ANIMATOR_DURATION_SCALE,
-            1f
-        ) == 0f
-    } catch (_: Exception) {
-        false
+    var reducedMotion by remember(context) { mutableStateOf(isSystemReducedMotion(context)) }
+
+    DisposableEffect(context) {
+        val resolver = context.contentResolver
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                reducedMotion = isSystemReducedMotion(context)
+            }
+        }
+        resolver.registerContentObserver(
+            Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE),
+            false,
+            observer
+        )
+        resolver.registerContentObserver(
+            Settings.Global.getUriFor(Settings.Global.TRANSITION_ANIMATION_SCALE),
+            false,
+            observer
+        )
+        onDispose {
+            resolver.unregisterContentObserver(observer)
+        }
     }
 
     if (!view.isInEditMode) {

@@ -1,8 +1,20 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,7 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -29,17 +41,14 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -65,6 +74,12 @@ import com.example.data.db.VisitorDayEntity
 import com.example.ui.MonthlyVisitorSummary
 import com.example.ui.components.AnimatedIntCounter
 import com.example.ui.components.OpsStatusPill
+import com.example.ui.components.SpringButton
+import com.example.ui.components.SpringFloatingActionButton
+import com.example.ui.components.SpringListItemContainer
+import com.example.ui.components.SpringOutlinedButton
+import com.example.ui.components.springPressScale
+import com.example.ui.theme.LocalReducedMotion
 import com.example.ui.theme.OpsTabularFontFamily
 import com.example.ui.theme.OpsAmber
 import com.example.ui.theme.OpsBorder
@@ -96,6 +111,7 @@ fun VisitorsMaintenanceScreen(
     modifier: Modifier = Modifier
 ) {
     var activeTab by remember { mutableIntStateOf(0) } // 0 = PM Visitors, 1 = Maintenance Log
+    var selectedMonthKey by remember { mutableStateOf<String?>(null) }
     var showAddViewingDialog by remember { mutableStateOf(false) }
     var editingVisitorDay by remember { mutableStateOf<VisitorDayEntity?>(null) }
     var editingMaintenance by remember { mutableStateOf<MaintenanceRequestEntity?>(null) }
@@ -107,8 +123,18 @@ fun VisitorsMaintenanceScreen(
             .sortedByDescending { it.key }
             .map { (key, list) ->
                 val label = when (key) {
+                    "2026-12" -> "Dec 2026 SUM"
                     "2026-11" -> "Nov 2026 SUM"
                     "2026-10" -> "Oct 2026 SUM"
+                    "2026-09" -> "Sep 2026 SUM"
+                    "2026-08" -> "Aug 2026 SUM"
+                    "2026-07" -> "Jul 2026 SUM"
+                    "2026-06" -> "Jun 2026 SUM"
+                    "2026-05" -> "May 2026 SUM"
+                    "2026-04" -> "Apr 2026 SUM"
+                    "2026-03" -> "Mar 2026 SUM"
+                    "2026-02" -> "Feb 2026 SUM"
+                    "2026-01" -> "Jan 2026 SUM"
                     else -> "$key SUM"
                 }
                 MonthlyVisitorSummary(
@@ -120,12 +146,16 @@ fun VisitorsMaintenanceScreen(
                 )
             }
     }
+    val displayedVisitors = remember(visitors, selectedMonthKey) {
+        val m = selectedMonthKey
+        if (m == null) visitors else visitors.filter { it.monthKey == m }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = OpsObsidian,
         floatingActionButton = {
-            FloatingActionButton(
+            SpringFloatingActionButton(
                 onClick = {
                     if (activeTab == 0) {
                         editingVisitorDay = VisitorDayEntity(
@@ -137,13 +167,12 @@ fun VisitorsMaintenanceScreen(
                             flatDetails = ""
                         )
                     } else {
-                        val nextSn = (maintenance.maxOfOrNull { it.sn } ?: 0) + 1
                         editingMaintenance = MaintenanceRequestEntity(
                             sn = 0,
                             date = "26/11/2026",
                             names = "",
                             phoneNumber = "+974 ",
-                            workOrderNumber = "WO-2026-${1189 + nextSn}",
+                            workOrderNumber = "-",
                             qidNumber = "",
                             flatDetails = "",
                             requestDetails = ""
@@ -158,14 +187,18 @@ fun VisitorsMaintenanceScreen(
             }
         }
     ) { innerPadding ->
-        LazyColumn(
+        val reducedMotion = LocalReducedMotion.current
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(innerPadding)
         ) {
-            item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -192,9 +225,7 @@ fun VisitorsMaintenanceScreen(
                         }
                     }
                 }
-            }
 
-            item {
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     SegmentedButton(
                         selected = activeTab == 0,
@@ -227,8 +258,37 @@ fun VisitorsMaintenanceScreen(
                 }
             }
 
-            if (activeTab == 0) {
-                // Today's Quick Actions (+1 Visitor / +1 Viewing)
+            AnimatedContent(
+                targetState = activeTab,
+                transitionSpec = {
+                    if (reducedMotion) {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
+                        val forward = targetState > initialState
+                        val enterOffset = if (forward) 1 else -1
+                        val exitOffset = -enterOffset
+                        (slideInHorizontally(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            initialOffsetX = { it * enterOffset / 3 }
+                        ) + fadeIn(tween(180))) togetherWith (slideOutHorizontally(
+                            animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                            targetOffsetX = { it * exitOffset / 4 }
+                        ) + fadeOut(tween(140)))
+                    }
+                },
+                modifier = Modifier.weight(1f),
+                label = "visitorsMaintenanceTabTransition"
+            ) { tab ->
+                if (tab == 0) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 88.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Today's Quick Actions (+1 Visitor / +1 Viewing)
                 item {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = OpsConsole),
@@ -283,7 +343,7 @@ fun VisitorsMaintenanceScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Button(
+                                SpringButton(
                                     onClick = onPlusOneVisitor,
                                     colors = ButtonDefaults.buttonColors(containerColor = OpsCyan, contentColor = OpsObsidian),
                                     modifier = Modifier
@@ -294,7 +354,7 @@ fun VisitorsMaintenanceScreen(
                                     Spacer(Modifier.width(6.dp))
                                     Text("+1 Visitor", fontWeight = FontWeight.Bold)
                                 }
-                                OutlinedButton(
+                                SpringOutlinedButton(
                                     onClick = { showAddViewingDialog = true },
                                     border = BorderStroke(1.dp, OpsAmber.copy(alpha = 0.7f)),
                                     modifier = Modifier
@@ -310,7 +370,7 @@ fun VisitorsMaintenanceScreen(
                     }
                 }
 
-                // Monthly SUM Roll-Ups
+                // Monthly SUM Roll-Ups (tap to filter daily rows)
                 item {
                     Row(
                         modifier = Modifier
@@ -319,16 +379,31 @@ fun VisitorsMaintenanceScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         monthlySummaries.forEach { sum ->
+                            val isSelected = selectedMonthKey == sum.monthKey
+                            val cardInteraction = remember { MutableInteractionSource() }
                             Card(
-                                colors = CardDefaults.cardColors(containerColor = OpsSlate),
-                                border = BorderStroke(1.dp, OpsBorder),
-                                shape = MaterialTheme.shapes.medium
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) OpsCyanDeep else OpsSlate
+                                ),
+                                border = BorderStroke(
+                                    width = if (isSelected) 1.5.dp else 1.dp,
+                                    color = if (isSelected) OpsCyan else OpsBorder
+                                ),
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier
+                                    .springPressScale(cardInteraction, pressedScale = 0.96f)
+                                    .clickable(
+                                        interactionSource = cardInteraction,
+                                        indication = androidx.compose.material3.ripple()
+                                    ) {
+                                        selectedMonthKey = if (isSelected) null else sum.monthKey
+                                    }
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Text(
                                         text = sum.monthLabel,
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = OpsAmber
+                                        color = if (isSelected) OpsCyan else OpsAmber
                                     )
                                     Spacer(Modifier.height(4.dp))
                                     Text(
@@ -337,7 +412,7 @@ fun VisitorsMaintenanceScreen(
                                         color = OpsWhite
                                     )
                                     Text(
-                                        text = "${sum.daysLogged} logged days",
+                                        text = if (isSelected) "${sum.daysLogged} days • Tap to show all" else "${sum.daysLogged} days",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = OpsSteel
                                     )
@@ -348,59 +423,72 @@ fun VisitorsMaintenanceScreen(
                 }
 
                 // Daily Visitor Rows
-                items(visitors, key = { it.dateIso }) { day ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = OpsConsole),
-                        border = BorderStroke(1.dp, OpsBorder),
-                        shape = MaterialTheme.shapes.medium,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("visitor_row_${day.dateIso}")
-                            .clickable { editingVisitorDay = day }
-                    ) {
-                        Row(
+                itemsIndexed(displayedVisitors, key = { _, day -> day.dateIso }) { index, day ->
+                    SpringListItemContainer(itemKey = day.dateIso, index = index) {
+                        val rowInteraction = remember { MutableInteractionSource() }
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = OpsConsole),
+                            border = BorderStroke(1.dp, OpsBorder),
+                            shape = MaterialTheme.shapes.medium,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .springPressScale(rowInteraction, pressedScale = 0.98f)
+                                .testTag("visitor_row_${day.dateIso}")
+                                .clickable(
+                                    interactionSource = rowInteraction,
+                                    indication = androidx.compose.material3.ripple()
+                                ) { editingVisitorDay = day }
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = day.displayDate,
-                                    style = MaterialTheme.typography.titleMedium.copy(fontFamily = OpsTabularFontFamily),
-                                    color = OpsWhite
-                                )
-                                Text(
-                                    text = "Flats: ${day.flatDetails.ifBlank { "-" }}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = OpsSteel
-                                )
-                                if (day.notes.isNotBlank()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = day.notes,
+                                        text = day.displayDate,
+                                        style = MaterialTheme.typography.titleMedium.copy(fontFamily = OpsTabularFontFamily),
+                                        color = OpsWhite
+                                    )
+                                    Text(
+                                        text = "Flats: ${day.flatDetails.ifBlank { "-" }}",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = OpsSteel.copy(alpha = 0.8f)
+                                        color = OpsSteel
+                                    )
+                                    if (day.notes.isNotBlank()) {
+                                        Text(
+                                            text = day.notes,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = OpsSteel.copy(alpha = 0.8f)
+                                        )
+                                    }
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    OpsStatusPill(
+                                        label = "${day.visitorCount} VIS",
+                                        containerColor = OpsCyanDeep,
+                                        contentColor = OpsCyan
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    OpsStatusPill(
+                                        label = "${day.viewingCount} VIEW",
+                                        containerColor = OpsEmeraldDeep,
+                                        contentColor = OpsEmerald
                                     )
                                 }
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
-                                OpsStatusPill(
-                                    label = "${day.visitorCount} VIS",
-                                    containerColor = OpsCyanDeep,
-                                    contentColor = OpsCyan
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                OpsStatusPill(
-                                    label = "${day.viewingCount} VIEW",
-                                    containerColor = OpsEmeraldDeep,
-                                    contentColor = OpsEmerald
-                                )
                             }
                         }
                     }
                 }
-            } else {
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 88.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                 // Maintenance Request Log
                 item {
                     OutlinedTextField(
@@ -415,57 +503,65 @@ fun VisitorsMaintenanceScreen(
                     )
                 }
 
-                items(maintenance, key = { it.sn }) { item ->
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = OpsConsole),
-                        border = BorderStroke(1.dp, OpsBorder),
-                        shape = MaterialTheme.shapes.medium,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("maintenance_row_${item.sn}")
-                            .clickable { editingMaintenance = item }
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                itemsIndexed(maintenance, key = { _, item -> item.sn }) { index, item ->
+                    SpringListItemContainer(itemKey = item.sn, index = index) {
+                        val maintInteraction = remember { MutableInteractionSource() }
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = OpsConsole),
+                            border = BorderStroke(1.dp, OpsBorder),
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .springPressScale(maintInteraction, pressedScale = 0.98f)
+                                .testTag("maintenance_row_${item.sn}")
+                                .clickable(
+                                    interactionSource = maintInteraction,
+                                    indication = androidx.compose.material3.ripple()
+                                ) { editingMaintenance = item }
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Filled.Build, contentDescription = null, tint = OpsAmber, modifier = Modifier.size(18.dp))
-                                    Text(
-                                        text = "SN ${item.sn} • ${item.workOrderNumber}",
-                                        style = MaterialTheme.typography.titleSmall.copy(fontFamily = OpsTabularFontFamily),
-                                        color = OpsAmber
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Build, contentDescription = null, tint = OpsAmber, modifier = Modifier.size(18.dp))
+                                        val displaySn = if (item.sn > 1000) "2026 #${item.sn - 1000}" else "2025 #${item.sn}"
+                                        Text(
+                                            text = "$displaySn • ${item.workOrderNumber}",
+                                            style = MaterialTheme.typography.titleSmall.copy(fontFamily = OpsTabularFontFamily),
+                                            color = OpsAmber
+                                        )
+                                    }
+                                    OpsStatusPill(
+                                        label = item.flatDetails,
+                                        containerColor = OpsCyanDeep,
+                                        contentColor = OpsCyan
                                     )
                                 }
-                                OpsStatusPill(
-                                    label = item.flatDetails,
-                                    containerColor = OpsCyanDeep,
-                                    contentColor = OpsCyan
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    text = item.requestDetails,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = OpsWhite
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = "${item.date}  |  ${item.names}  |  ${item.phoneNumber}  |  QID: ${item.qidNumber}",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = OpsTabularFontFamily),
+                                    color = OpsSteel
                                 )
                             }
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                text = item.requestDetails,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = OpsWhite
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "${item.date}  |  ${item.names}  |  ${item.phoneNumber}  |  QID: ${item.qidNumber}",
-                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = OpsTabularFontFamily),
-                                color = OpsSteel
-                            )
                         }
                     }
                 }
+                    }
+                }
             }
-
-            item { Spacer(Modifier.height(72.dp)) }
         }
     }
 
@@ -489,7 +585,7 @@ fun VisitorsMaintenanceScreen(
                 )
             },
             confirmButton = {
-                Button(
+                SpringButton(
                     onClick = {
                         onPlusOneViewing(flatCode)
                         showAddViewingDialog = false
@@ -581,8 +677,8 @@ private fun VisitorDayEditSheet(
             OutlinedTextField(value = flats, onValueChange = { flats = it }, label = { Text("Flat Details") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = notes, onValueChange = { notes = it }, label = { Text("Notes") }, modifier = Modifier.fillMaxWidth())
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel", color = OpsSteel) }
-                Button(
+                SpringOutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel", color = OpsSteel) }
+                SpringButton(
                     onClick = {
                         onSave(
                             initial.copy(
@@ -635,8 +731,13 @@ private fun MaintenanceEditSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val editLabel = when {
+                    initial.sn == 0 -> "New Maintenance Request"
+                    initial.sn > 1000 -> "Edit Request 2026 #${initial.sn - 1000}"
+                    else -> "Edit Request 2025 #${initial.sn}"
+                }
                 Text(
-                    text = if (initial.sn == 0) "New Maintenance Request" else "Edit Request SN ${initial.sn}",
+                    text = editLabel,
                     style = MaterialTheme.typography.titleLarge,
                     color = OpsWhite
                 )
@@ -659,8 +760,8 @@ private fun MaintenanceEditSheet(
             OutlinedTextField(value = details, onValueChange = { details = it }, label = { Text("Maintenance Request Details") }, minLines = 2, modifier = Modifier.fillMaxWidth())
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel", color = OpsSteel) }
-                Button(
+                SpringOutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel", color = OpsSteel) }
+                SpringButton(
                     onClick = {
                         onSave(
                             initial.copy(

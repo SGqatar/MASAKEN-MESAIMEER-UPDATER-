@@ -2,6 +2,8 @@ package com.example.ui.components
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -49,7 +51,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -241,7 +242,10 @@ fun OpsMetricCard(
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (isPressed && !reducedMotion) 0.96f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        animationSpec = if (reducedMotion) snap() else spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
         label = "metricCardScale"
     )
 
@@ -331,7 +335,10 @@ fun OpsQuickActionPill(
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (isPressed && !reducedMotion) 0.93f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        animationSpec = if (reducedMotion) snap() else spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
         label = "quickActionScale"
     )
 
@@ -412,10 +419,22 @@ fun OpsAlertBanner(
     onPreviewNotifyClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val reducedMotion = LocalReducedMotion.current
     AnimatedVisibility(
         visible = !reminder.isDone,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
+        enter = if (reducedMotion) EnterTransition.None else {
+            fadeIn(tween(180)) + expandVertically(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        },
+        exit = if (reducedMotion) ExitTransition.None else {
+            fadeOut(tween(150)) + shrinkVertically(
+                animationSpec = spring(stiffness = Spring.StiffnessMedium)
+            )
+        },
         modifier = modifier
     ) {
         Card(
@@ -461,7 +480,7 @@ fun OpsAlertBanner(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedButton(
+                    SpringOutlinedButton(
                         onClick = onActionClick,
                         border = BorderStroke(1.dp, accentColor.copy(alpha = 0.6f)),
                         modifier = Modifier
@@ -514,20 +533,25 @@ fun DailyRoutineChecklistCard(
 ) {
     val steps = listOf(
         "Enter Nov 26 Padel & Football sheets (07:40 AM)",
-        "Verify Key Register unreturned items (SI 1634, 1638–1645)",
+        "Verify Key Register unreturned items (SI 1283, 1634, 1638–1645)",
         "Confirm daily PM Visitors & Apartment Viewings",
         "Review open Maintenance Work Orders"
     )
+    val reducedMotion = LocalReducedMotion.current
     val mask = reminder?.checklistMask ?: 0
     val completedCount = (0 until steps.size).count { (mask and (1 shl it)) != 0 }
     val isDone = reminder?.isDone == true
     val progressColor by animateColorAsState(
         targetValue = if (isDone) OpsEmerald else OpsAmber,
+        animationSpec = if (reducedMotion) snap() else spring(stiffness = Spring.StiffnessMediumLow),
         label = "checklistColor"
     )
     val animatedProgress by animateFloatAsState(
         targetValue = completedCount / steps.size.toFloat(),
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        animationSpec = if (reducedMotion) snap() else spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
         label = "checklistProgress"
     )
 
@@ -560,7 +584,16 @@ fun DailyRoutineChecklistCard(
                 }
                 AnimatedContent(
                     targetState = completedCount,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    transitionSpec = {
+                        if (reducedMotion) {
+                            EnterTransition.None togetherWith ExitTransition.None
+                        } else {
+                            (fadeIn(tween(180)) + scaleIn(
+                                initialScale = 0.85f,
+                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy)
+                            )) togetherWith fadeOut(tween(120))
+                        }
+                    },
                     label = "checklistCountAnim"
                 ) { count ->
                     Text(
@@ -584,11 +617,17 @@ fun DailyRoutineChecklistCard(
 
             steps.forEachIndexed { idx, label ->
                 val checked = (mask and (1 shl idx)) != 0
+                val stepInteraction = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .springPressScale(stepInteraction, pressedScale = 0.98f)
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable(enabled = reminder != null) { onToggleStep(idx) }
+                        .clickable(
+                            interactionSource = stepInteraction,
+                            indication = androidx.compose.material3.ripple(),
+                            enabled = reminder != null
+                        ) { onToggleStep(idx) }
                         .padding(vertical = 8.dp, horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

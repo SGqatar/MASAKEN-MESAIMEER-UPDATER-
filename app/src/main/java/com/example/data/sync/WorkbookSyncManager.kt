@@ -444,7 +444,7 @@ class WorkbookSyncManager(
                             unitDetails = r.getOrElse(5) { "" },
                             discount = r.getOrElse(6) { "FREE" },
                             referenceNo = r.getOrElse(7) { "" },
-                            durationPlayed = r.getOrNull(8)?.toDoubleOrNull() ?: 1.0,
+                            durationPlayed = XlsxEngine.parseDurationPlayed(r.getOrElse(8) { "1.0" }),
                             remarks = r.getOrElse(9) { "" }
                         )
                     )

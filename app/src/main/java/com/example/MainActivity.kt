@@ -63,10 +63,13 @@ import com.example.data.sync.IngestTarget
 import com.example.notifications.OpsNotificationHelper
 import com.example.ui.OpsViewModel
 import com.example.ui.components.RealTimeIngestSheet
+import com.example.ui.components.opsScreenEnterTransition
+import com.example.ui.components.opsScreenExitTransition
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.KeyRegisterScreen
 import com.example.ui.screens.SportsBookingScreen
 import com.example.ui.screens.VisitorsMaintenanceScreen
+import com.example.ui.theme.LocalReducedMotion
 import com.example.ui.theme.MasakenOpsTheme
 import com.example.ui.theme.OpsAmber
 import com.example.ui.theme.OpsCrimson
@@ -274,9 +277,31 @@ private fun MasakenOpsRoot(
                         .fillMaxSize()
                         .padding(innerPadding)
                 ) {
+                    val reducedMotion = LocalReducedMotion.current
+                    fun routeIndex(route: String?): Int {
+                        val idx = opsDestinations.indexOfFirst { it.route == route }
+                        return if (idx >= 0) idx else 0
+                    }
+
                     NavHost(
                         navController = navController,
-                        startDestination = ROUTE_DASHBOARD
+                        startDestination = ROUTE_DASHBOARD,
+                        enterTransition = {
+                            val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
+                            opsScreenEnterTransition(forward = forward, reducedMotion = reducedMotion)
+                        },
+                        exitTransition = {
+                            val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
+                            opsScreenExitTransition(forward = forward, reducedMotion = reducedMotion)
+                        },
+                        popEnterTransition = {
+                            val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
+                            opsScreenEnterTransition(forward = forward, reducedMotion = reducedMotion)
+                        },
+                        popExitTransition = {
+                            val forward = routeIndex(targetState.destination.route) >= routeIndex(initialState.destination.route)
+                            opsScreenExitTransition(forward = forward, reducedMotion = reducedMotion)
+                        }
                     ) {
                         composable(ROUTE_DASHBOARD) {
                             DashboardScreen(

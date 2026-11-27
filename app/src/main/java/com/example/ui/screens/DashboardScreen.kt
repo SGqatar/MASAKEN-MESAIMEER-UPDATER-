@@ -5,6 +5,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,13 +34,11 @@ import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,7 +71,10 @@ import com.example.ui.components.OpsAlertBanner
 import com.example.ui.components.OpsMetricCard
 import com.example.ui.components.OpsQuickActionPill
 import com.example.ui.components.OpsStatusPill
+import com.example.ui.components.SpringButton
+import com.example.ui.components.SpringOutlinedButton
 import com.example.ui.components.StaggeredMotionReveal
+import com.example.ui.components.springPressScale
 import com.example.ui.theme.OpsAmber
 import com.example.ui.theme.OpsAmberDeep
 import com.example.ui.theme.OpsBorder
@@ -275,7 +277,7 @@ fun DashboardScreen(
                                 color = OpsSteel
                             )
                         }
-                        Button(
+                        SpringButton(
                             onClick = onRequestNotificationPermission,
                             colors = ButtonDefaults.buttonColors(containerColor = OpsAmber, contentColor = OpsObsidian),
                             modifier = Modifier.testTag("enable_notifications_button")
@@ -380,74 +382,82 @@ fun DashboardScreen(
         // Next-Day Unreturned Key Verification Alerts
         if (unreturnedKeys.isNotEmpty()) {
             item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = OpsCrimsonSurface),
-                    border = BorderStroke(1.dp, OpsCrimsonBorder),
-                    shape = MaterialTheme.shapes.large
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            LivePulseBeacon(color = OpsCrimson, size = 8.dp)
-                            Icon(
-                                imageVector = Icons.Filled.WarningAmber,
-                                contentDescription = null,
-                                tint = OpsCrimson
-                            )
-                            Text(
-                                text = "Next-Day Unreturned Key Reminders (${unreturnedKeys.size})",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = OpsWhite
-                            )
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            text = "Strictly highlighted in red until verified returned in Form WSF-PMD-F-07.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OpsCrimsonText
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        unreturnedKeys.forEach { key ->
+                StaggeredMotionReveal(delayMillis = 220) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = OpsCrimsonSurface),
+                        border = BorderStroke(1.dp, OpsCrimsonBorder),
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable(onClick = onNavigateToKeys)
-                                    .padding(vertical = 8.dp, horizontal = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "SI ${key.si} • ${key.flatUnitLocation}",
-                                        style = MaterialTheme.typography.labelLarge.copy(fontFamily = OpsTabularFontFamily),
-                                        color = OpsWhite
-                                    )
-                                    Text(
-                                        text = "${key.issuedTo} (${key.dateOut} ${key.timeOut}) — ${key.status}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = OpsCrimsonText
-                                    )
-                                }
-                                OpsStatusPill(
-                                    label = "VERIFY",
-                                    containerColor = Color(0xFF45121B),
-                                    contentColor = OpsCrimsonText
+                                LivePulseBeacon(color = OpsCrimson, size = 8.dp)
+                                Icon(
+                                    imageVector = Icons.Filled.WarningAmber,
+                                    contentDescription = null,
+                                    tint = OpsCrimson
+                                )
+                                Text(
+                                    text = "Next-Day Unreturned Key Reminders (${unreturnedKeys.size})",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = OpsWhite
                                 )
                             }
-                        }
-                        if (keyReminders.isNotEmpty()) {
                             Spacer(Modifier.height(6.dp))
-                            OutlinedButton(
-                                onClick = { onPreviewNotify(keyReminders.first()) },
-                                border = BorderStroke(1.dp, OpsCrimsonText.copy(alpha = 0.5f)),
-                                modifier = Modifier.testTag("test_key_notification_btn")
-                            ) {
-                                Icon(Icons.Filled.NotificationsActive, contentDescription = null, tint = OpsCrimsonText, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Send Next-Day Key Alert", color = OpsCrimsonText)
+                            Text(
+                                text = "Strictly highlighted in red until verified returned in Form WSF-PMD-F-07.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OpsCrimsonText
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            unreturnedKeys.forEach { key ->
+                                val rowInteraction = remember { MutableInteractionSource() }
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .springPressScale(rowInteraction, pressedScale = 0.98f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable(
+                                            interactionSource = rowInteraction,
+                                            indication = androidx.compose.material3.ripple(),
+                                            onClick = onNavigateToKeys
+                                        )
+                                        .padding(vertical = 8.dp, horizontal = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "SI ${key.si} • ${key.flatUnitLocation}",
+                                            style = MaterialTheme.typography.labelLarge.copy(fontFamily = OpsTabularFontFamily),
+                                            color = OpsWhite
+                                        )
+                                        Text(
+                                            text = "${key.issuedTo} (${key.dateOut} ${key.timeOut}) — ${key.status}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = OpsCrimsonText
+                                        )
+                                    }
+                                    OpsStatusPill(
+                                        label = "VERIFY",
+                                        containerColor = Color(0xFF45121B),
+                                        contentColor = OpsCrimsonText
+                                    )
+                                }
+                            }
+                            if (keyReminders.isNotEmpty()) {
+                                Spacer(Modifier.height(6.dp))
+                                SpringOutlinedButton(
+                                    onClick = { onPreviewNotify(keyReminders.first()) },
+                                    border = BorderStroke(1.dp, OpsCrimsonText.copy(alpha = 0.5f)),
+                                    modifier = Modifier.testTag("test_key_notification_btn")
+                                ) {
+                                    Icon(Icons.Filled.NotificationsActive, contentDescription = null, tint = OpsCrimsonText, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Send Next-Day Key Alert", color = OpsCrimsonText)
+                                }
                             }
                         }
                     }
@@ -457,63 +467,65 @@ fun DashboardScreen(
 
         // Direct Live Add / Update & Export Hub
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = OpsConsole),
-                border = BorderStroke(1.dp, OpsBorder),
-                shape = MaterialTheme.shapes.large
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Live Add / Update & Sync (XLSX · CSV · Photo)",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = OpsWhite
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "Add or update any ledger in real time via .xlsx, .csv, .json, or photo, or export Excel sheets with red unreturned-key styling.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = OpsSteel
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = onOpenLiveIngest,
-                            colors = ButtonDefaults.buttonColors(containerColor = OpsCyan, contentColor = OpsObsidian),
-                            modifier = Modifier
-                                .weight(1f)
-                                .minimumInteractiveComponentSize()
-                                .testTag("import_workbook_button")
+            StaggeredMotionReveal(delayMillis = 250) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = OpsConsole),
+                    border = BorderStroke(1.dp, OpsBorder),
+                    shape = MaterialTheme.shapes.large
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Live Add / Update & Sync (XLSX · CSV · Photo)",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = OpsWhite
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "Add or update any ledger in real time via .xlsx, .csv, .json, or photo, or export Excel sheets with red unreturned-key styling.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OpsSteel
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(Icons.Filled.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("XLSX / CSV / Photo", fontWeight = FontWeight.Bold)
+                            SpringButton(
+                                onClick = onOpenLiveIngest,
+                                colors = ButtonDefaults.buttonColors(containerColor = OpsCyan, contentColor = OpsObsidian),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("import_workbook_button")
+                            ) {
+                                Icon(Icons.Filled.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("XLSX / CSV / Photo", fontWeight = FontWeight.Bold)
+                            }
+                            SpringOutlinedButton(
+                                onClick = onExportXlsx,
+                                border = BorderStroke(1.dp, OpsAmber.copy(alpha = 0.7f)),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .minimumInteractiveComponentSize()
+                                    .testTag("export_xlsx_button")
+                            ) {
+                                Icon(Icons.Filled.Download, contentDescription = null, tint = OpsAmber, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Export .xlsx", color = OpsAmber)
+                            }
                         }
-                        OutlinedButton(
-                            onClick = onExportXlsx,
-                            border = BorderStroke(1.dp, OpsAmber.copy(alpha = 0.7f)),
+                        Spacer(Modifier.height(8.dp))
+                        SpringOutlinedButton(
+                            onClick = onExportJson,
+                            border = BorderStroke(1.dp, OpsBorder),
                             modifier = Modifier
-                                .weight(1f)
+                                .fillMaxWidth()
                                 .minimumInteractiveComponentSize()
-                                .testTag("export_xlsx_button")
+                                .testTag("export_json_button")
                         ) {
-                            Icon(Icons.Filled.Download, contentDescription = null, tint = OpsAmber, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Export .xlsx", color = OpsAmber)
+                            Text("Export Full JSON Snapshot", color = OpsSteel)
                         }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedButton(
-                        onClick = onExportJson,
-                        border = BorderStroke(1.dp, OpsBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .minimumInteractiveComponentSize()
-                            .testTag("export_json_button")
-                    ) {
-                        Text("Export Full JSON Snapshot", color = OpsSteel)
                     }
                 }
             }
@@ -538,7 +550,7 @@ fun DashboardScreen(
                 )
             },
             confirmButton = {
-                Button(
+                SpringButton(
                     onClick = {
                         onPlusOneViewing(flatCode)
                         showHomeViewingDialog = false

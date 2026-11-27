@@ -392,7 +392,7 @@ object XlsxEngine {
                                 unitDetails = colValue(r, headers, "unit"),
                                 discount = colValue(r, headers, "discount").ifBlank { "FREE" },
                                 referenceNo = colValue(r, headers, "reference"),
-                                durationPlayed = colValue(r, headers, "duration").toDoubleOrNull() ?: 1.0,
+                                durationPlayed = parseDurationPlayed(colValue(r, headers, "duration")),
                                 remarks = colValue(r, headers, "remarks")
                             )
                         )
@@ -540,5 +540,14 @@ object XlsxEngine {
             }
         }
         return null
+    }
+
+    fun parseDurationPlayed(raw: String): Double {
+        val clean = raw.trim().uppercase(Locale.ROOT)
+        clean.toDoubleOrNull()?.let { return it }
+        val hours = Regex("""(\d+(?:\.\d+)?)\s*HOURS?""").find(clean)?.groupValues?.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+        val mins = Regex("""(\d+(?:\.\d+)?)\s*MINUTES?""").find(clean)?.groupValues?.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+        val total = hours + (mins / 60.0)
+        return if (total > 0.0) total else 1.0
     }
 }

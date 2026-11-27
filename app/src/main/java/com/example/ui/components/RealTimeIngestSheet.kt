@@ -4,6 +4,15 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -27,7 +36,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,7 +46,6 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -63,6 +70,7 @@ import coil.compose.AsyncImage
 import com.example.data.sync.ImportedWorkbookBundle
 import com.example.data.sync.IngestTarget
 import com.example.ui.RealTimeIngestUiState
+import com.example.ui.theme.LocalReducedMotion
 import com.example.ui.theme.OpsAmber
 import com.example.ui.theme.OpsAmberDeep
 import com.example.ui.theme.OpsBorder
@@ -205,53 +213,65 @@ fun RealTimeIngestSheet(
                 }
             }
 
-            if (inputMode == 0) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = OpsConsole),
-                    border = BorderStroke(1.dp, OpsBorder),
-                    shape = MaterialTheme.shapes.medium
-                ) {
-                    Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+            val reducedMotion = LocalReducedMotion.current
+            AnimatedContent(
+                targetState = inputMode,
+                transitionSpec = {
+                    if (reducedMotion) {
+                        EnterTransition.None togetherWith ExitTransition.None
+                    } else {
+                        fadeIn(tween(180)) togetherWith fadeOut(tween(140))
+                    }
+                },
+                label = "ingestModeAnim"
+            ) { mode ->
+                if (mode == 0) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = OpsConsole),
+                        border = BorderStroke(1.dp, OpsBorder),
+                        shape = MaterialTheme.shapes.medium
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Filled.TableChart, contentDescription = null, tint = OpsCyan)
-                            Text(
-                                text = "Select Excel (.xlsx), CSV (.csv), or JSON",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = OpsWhite
-                            )
-                        }
-                        Text(
-                            text = "Existing rows with matching SI (Keys), Date (Visitors), or SN (Sports/Maintenance) are updated in place; new rows are added immediately.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = OpsSteel
-                        )
-                        Button(
-                            onClick = {
-                                filePicker.launch(
-                                    arrayOf(
-                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                        "text/csv",
-                                        "text/comma-separated-values",
-                                        "application/json",
-                                        "*/*"
-                                    )
-                                )
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = OpsCyan, contentColor = OpsObsidian),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("pick_xlsx_csv_button")
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Icon(Icons.Filled.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Choose .xlsx / .csv File", fontWeight = FontWeight.Bold)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Filled.TableChart, contentDescription = null, tint = OpsCyan)
+                                Text(
+                                    text = "Select Excel (.xlsx), CSV (.csv), or JSON",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = OpsWhite
+                                )
+                            }
+                            Text(
+                                text = "Existing rows with matching SI (Keys), Date (Visitors), or SN (Sports/Maintenance) are updated in place; new rows are added immediately.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OpsSteel
+                            )
+                            SpringButton(
+                                onClick = {
+                                    filePicker.launch(
+                                        arrayOf(
+                                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                            "text/csv",
+                                            "text/comma-separated-values",
+                                            "application/json",
+                                            "*/*"
+                                        )
+                                    )
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = OpsCyan, contentColor = OpsObsidian),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("pick_xlsx_csv_button")
+                            ) {
+                                Icon(Icons.Filled.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Choose .xlsx / .csv File", fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
-                }
-            } else {
+                } else {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = OpsConsole),
                     border = BorderStroke(1.dp, OpsBorder),
@@ -261,7 +281,7 @@ fun RealTimeIngestSheet(
                         modifier = Modifier.padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        OutlinedButton(
+                        SpringOutlinedButton(
                             onClick = {
                                 photoPicker.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -310,7 +330,7 @@ fun RealTimeIngestSheet(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             if (photoPath != null) {
-                                Button(
+                                SpringButton(
                                     onClick = { onExtractFromPhoto(photoPath!!, selectedTarget, noteHint) },
                                     enabled = ingestState !is RealTimeIngestUiState.Processing,
                                     colors = ButtonDefaults.buttonColors(containerColor = OpsAmber, contentColor = OpsObsidian),
@@ -323,7 +343,7 @@ fun RealTimeIngestSheet(
                                     Text("Extract Photo", fontWeight = FontWeight.Bold)
                                 }
                             }
-                            OutlinedButton(
+                            SpringOutlinedButton(
                                 onClick = { onCreateOfflineDraft(noteHint, selectedTarget, photoPath) },
                                 enabled = noteHint.isNotBlank() && ingestState !is RealTimeIngestUiState.Processing,
                                 border = BorderStroke(1.dp, OpsCyan.copy(alpha = 0.6f)),
@@ -335,6 +355,7 @@ fun RealTimeIngestSheet(
                             }
                         }
                     }
+                }
                 }
             }
 
@@ -405,7 +426,7 @@ fun RealTimeIngestSheet(
                                 Text("• Filtered ${p.bundle.skippedTestRecords} deleted test entry(ies)", style = MaterialTheme.typography.bodySmall, color = OpsAmber)
                             }
 
-                            Button(
+                            SpringButton(
                                 onClick = {
                                     onCommitBundle(p.bundle)
                                     onDismiss()

@@ -59,6 +59,33 @@ abstract class MasakenDatabase : RoomDatabase() {
                 database.maintenanceRequestDao().upsertAll(SeedDataProvider.buildMaintenanceSeed())
                 database.sportsBookingDao().upsertAll(SeedDataProvider.buildSportsBookingsSeed())
                 database.opsReminderDao().upsertAll(SeedDataProvider.buildInitialRemindersSeed(keys))
+            } else {
+                val deletedSports = database.sportsBookingDao().deletePlaceholderSportsRows()
+                if (deletedSports > 0 || database.sportsBookingDao().getAllAscendingOnce().isEmpty()) {
+                    database.sportsBookingDao().upsertAll(SeedDataProvider.buildSportsBookingsSeed())
+                }
+
+                val deletedVisitors = database.visitorDayDao().deleteSyntheticVisitorRows()
+                if (deletedVisitors > 0 || database.visitorDayDao().getAllOnce().size < 300) {
+                    database.visitorDayDao().insertIgnoreAll(SeedDataProvider.buildVisitorDaysSeed())
+                }
+
+                val deletedMaint = database.maintenanceRequestDao().deleteSyntheticMaintenanceRows()
+                if (deletedMaint > 0 || database.maintenanceRequestDao().getAllOnce().isEmpty()) {
+                    database.maintenanceRequestDao().insertIgnoreAll(SeedDataProvider.buildMaintenanceSeed())
+                }
+
+                val deletedKeys = database.keyRegisterDao().deletePlaceholderKeyRows()
+                if (deletedKeys > 0 || database.keyRegisterDao().getAllOnce().none { it.si == 2 }) {
+                    val keys = SeedDataProvider.buildKeyRegisterSeed()
+                    database.keyRegisterDao().insertIgnoreAll(keys)
+                    val existingReminderIds = database.opsReminderDao().getAllOnce().map { it.id }.toSet()
+                    val missingReminders = SeedDataProvider.buildInitialRemindersSeed(keys)
+                        .filter { it.id !in existingReminderIds }
+                    if (missingReminders.isNotEmpty()) {
+                        database.opsReminderDao().upsertAll(missingReminders)
+                    }
+                }
             }
         }
     }
