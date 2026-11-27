@@ -2,12 +2,14 @@ package com.example.data.cloud
 
 import android.util.Log
 import androidx.annotation.Keep
+import com.example.data.db.InspectionReportEntity
 import com.example.data.db.KeyRegisterEntity
 import com.example.data.db.KeyStatus
 import com.example.data.db.MaintenanceRequestEntity
 import com.example.data.db.MasakenDatabase
 import com.example.data.db.OpsReminderEntity
 import com.example.data.db.ReminderType
+import com.example.data.db.ReportDispatchEntity
 import com.example.data.db.SportsBookingEntity
 import com.example.data.db.VisitorDayEntity
 import com.example.data.sync.TestRecordFilter
@@ -59,6 +61,8 @@ class FirestoreSyncRepository(
     private val knownMaintenanceIds = Collections.synchronizedSet(mutableSetOf<String>())
     private val knownSportsIds = Collections.synchronizedSet(mutableSetOf<String>())
     private val knownReminderIds = Collections.synchronizedSet(mutableSetOf<String>())
+    private val knownInspectionIds = Collections.synchronizedSet(mutableSetOf<String>())
+    private val knownDispatchIds = Collections.synchronizedSet(mutableSetOf<String>())
 
     @Volatile
     private var activeUid: String? = null
@@ -77,6 +81,8 @@ class FirestoreSyncRepository(
     private fun maintenanceCol(uid: String) = userDoc(uid).collection("maintenanceRequests")
     private fun sportsCol(uid: String) = userDoc(uid).collection("sportsBookings")
     private fun remindersCol(uid: String) = userDoc(uid).collection("reminders")
+    private fun inspectionsCol(uid: String) = userDoc(uid).collection("inspectionReports")
+    private fun dispatchesCol(uid: String) = userDoc(uid).collection("reportDispatches")
 
     suspend fun startSessionSync(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -132,6 +138,8 @@ class FirestoreSyncRepository(
         knownMaintenanceIds.clear()
         knownSportsIds.clear()
         knownReminderIds.clear()
+        knownInspectionIds.clear()
+        knownDispatchIds.clear()
     }
 
     private suspend fun upsertUserProfile(uid: String) {
@@ -177,6 +185,36 @@ class FirestoreSyncRepository(
                 knownKeyIds.add(docId)
                 keysCol(uid).document(docId) to keyToCreateMap(key)
             }
+        } else {
+            // Reconcile Nov 26 SI 1634..1645 and SI 1283 upward on startup without overwriting returned/tenant-issued keys
+            val reconciledKeys = db.keyRegisterDao().getAllOnce().filter { it.si in 1634..1645 || it.si == 1283 }
+            reconciledKeys.forEach { key ->
+                val docId = key.si.toString()
+                val snap = keysCol(uid).document(docId).get().await()
+                if (!snap.exists()) {
+                    knownKeyIds.add(docId)
+                    keysCol(uid).document(docId).set(keyToCreateMap(key)).await()
+                } else {
+                    knownKeyIds.add(docId)
+                    val remoteStatus = normalizeStatus(snap.getString("status").orEmpty())
+                    val remoteIssuedBy = snap.getString("issuedBy").orEmpty()
+                    val remoteRemarks = snap.getString("remarks").orEmpty()
+                    val remoteQidOrNote = snap.getString("qidOrNote").orEmpty()
+                    val remoteSettled = remoteStatus.equals(KeyStatus.RETURNED, true) ||
+                        remoteStatus.equals(KeyStatus.ISSUED_TO_TENANT, true)
+                    if (!remoteSettled && (
+                            remoteStatus != key.status ||
+                                remoteIssuedBy.isBlank() ||
+                                remoteRemarks != key.remarks ||
+                                (key.isMoveInPendingTCode && remoteQidOrNote != key.qidOrNote)
+                            )
+                    ) {
+                        keysCol(uid).document(docId).update(keyToUpdateMap(key)).await()
+                    } else if (remoteSettled && remoteIssuedBy.isBlank() && key.issuedBy.isNotBlank()) {
+                        keysCol(uid).document(docId).update("issuedBy", key.issuedBy).await()
+                    }
+                }
+            }
         }
 
         // Visitor Days
@@ -206,6 +244,17 @@ class FirestoreSyncRepository(
                 knownSportsIds.add(docId)
                 sportsCol(uid).document(docId) to sportsToCreateMap(booking)
             }
+        } else {
+            // Ensure Nov 26 SN 140..144 additions sync upward if absent remotely
+            val nov26Sports = db.sportsBookingDao().getAllAscendingOnce().filter { it.sn in 140..144 }
+            nov26Sports.forEach { booking ->
+                val docId = booking.sn.toString()
+                val snap = sportsCol(uid).document(docId).get().await()
+                if (!snap.exists()) {
+                    knownSportsIds.add(docId)
+                    sportsCol(uid).document(docId).set(sportsToCreateMap(booking)).await()
+                }
+            }
         }
 
         // Reminders
@@ -214,6 +263,27 @@ class FirestoreSyncRepository(
             batchCreate(allReminders) { rem ->
                 knownReminderIds.add(rem.id)
                 remindersCol(uid).document(rem.id) to reminderToCreateMap(rem)
+            }
+        } else {
+            val syncedReminderIds = setOf("daily_1530", "sat_audit_2026_11_28", "weekly_report_fri", "monthly_report_eom")
+            db.opsReminderDao().getAllOnce().filter { it.id in syncedReminderIds }.forEach { rem ->
+                val snap = remindersCol(uid).document(rem.id).get().await()
+                if (!snap.exists()) {
+                    knownReminderIds.add(rem.id)
+                    remindersCol(uid).document(rem.id).set(reminderToCreateMap(rem)).await()
+                } else if (rem.id in setOf("daily_1530", "sat_audit_2026_11_28")) {
+                    knownReminderIds.add(rem.id)
+                    val remoteMsg = snap.getString("message").orEmpty()
+                    if (remoteMsg != rem.message) {
+                        remindersCol(uid).document(rem.id).update(
+                            mapOf(
+                                "title" to rem.title,
+                                "message" to rem.message,
+                                "updatedAt" to FieldValue.serverTimestamp()
+                            )
+                        ).await()
+                    }
+                }
             }
         }
     }
@@ -330,7 +400,45 @@ class FirestoreSyncRepository(
                 }
             }
 
-        listeners.addAll(listOf(keysReg, visitorsReg, maintReg, sportsReg, remReg))
+        val inspectionsReg = inspectionsCol(uid)
+            .orderBy("createdAtMillis", Query.Direction.DESCENDING)
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    logFirestoreError(err, OperationType.LIST, "users/$uid/inspectionReports", auth)
+                    return@addSnapshotListener
+                }
+                if (snap == null || snap.isEmpty) return@addSnapshotListener
+                val entities = snap.documents.mapNotNull { doc ->
+                    knownInspectionIds.add(doc.id)
+                    docToInspectionEntity(doc)
+                }
+                if (entities.isNotEmpty()) {
+                    scope.launch {
+                        db.inspectionReportDao().upsertAll(entities)
+                    }
+                }
+            }
+
+        val dispatchesReg = dispatchesCol(uid)
+            .orderBy("sentAtMillis", Query.Direction.DESCENDING)
+            .addSnapshotListener { snap, err ->
+                if (err != null) {
+                    logFirestoreError(err, OperationType.LIST, "users/$uid/reportDispatches", auth)
+                    return@addSnapshotListener
+                }
+                if (snap == null || snap.isEmpty) return@addSnapshotListener
+                val entities = snap.documents.mapNotNull { doc ->
+                    knownDispatchIds.add(doc.id)
+                    docToDispatchEntity(doc)
+                }
+                if (entities.isNotEmpty()) {
+                    scope.launch {
+                        db.reportDispatchDao().upsertAll(entities)
+                    }
+                }
+            }
+
+        listeners.addAll(listOf(keysReg, visitorsReg, maintReg, sportsReg, remReg, inspectionsReg, dispatchesReg))
     }
 
     // -------------------------------------------------------------------------
@@ -508,6 +616,52 @@ class FirestoreSyncRepository(
         }
     }
 
+    suspend fun syncInspectionReport(report: InspectionReportEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        val uid = auth.currentUser?.uid ?: return@withContext Result.success(Unit)
+        val path = "users/$uid/inspectionReports/${report.id}"
+        try {
+            val ref = inspectionsCol(uid).document(report.id)
+            val existsRemotely = knownInspectionIds.contains(report.id) || ref.get().await().exists()
+            if (existsRemotely) {
+                knownInspectionIds.add(report.id)
+                ref.update(inspectionToUpdateMap(report)).await()
+            } else {
+                knownInspectionIds.add(report.id)
+                ref.set(inspectionToCreateMap(report)).await()
+            }
+            _syncState.value = CloudSyncState.Synced(uid, System.currentTimeMillis())
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logFirestoreError(e, OperationType.WRITE, path, auth)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun syncReportDispatch(dispatch: ReportDispatchEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        val uid = auth.currentUser?.uid ?: return@withContext Result.success(Unit)
+        val path = "users/$uid/reportDispatches/${dispatch.id}"
+        try {
+            val ref = dispatchesCol(uid).document(dispatch.id)
+            val existsRemotely = knownDispatchIds.contains(dispatch.id) || ref.get().await().exists()
+            if (existsRemotely) {
+                knownDispatchIds.add(dispatch.id)
+                ref.update(dispatchToUpdateMap(dispatch)).await()
+            } else {
+                knownDispatchIds.add(dispatch.id)
+                ref.set(dispatchToCreateMap(dispatch)).await()
+            }
+            _syncState.value = CloudSyncState.Synced(uid, System.currentTimeMillis())
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logFirestoreError(e, OperationType.WRITE, path, auth)
+            Result.failure(e)
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Payload Mappers (Strictly aligned with firestore.rules keysets & bounds)
     // -------------------------------------------------------------------------
@@ -516,47 +670,50 @@ class FirestoreSyncRepository(
             KeyStatus.RETURNED,
             KeyStatus.ISSUED,
             KeyStatus.ISSUED_TO_TENANT,
+            KeyStatus.MOVE_IN_PENDING_TCODE,
             KeyStatus.NOT_YET_RETURNED
         )
         return allowed.firstOrNull { it.equals(raw.trim(), ignoreCase = true) }
             ?: KeyStatus.ISSUED
     }
 
-    private fun keyToCreateMap(e: KeyRegisterEntity): Map<String, Any> = mapOf(
-        "si" to e.si,
-        "dateOut" to e.dateOut.take(40),
-        "timeOut" to e.timeOut.take(40),
-        "flatUnitLocation" to e.flatUnitLocation.take(120),
-        "keyCardType" to e.keyCardType.take(120),
-        "purpose" to e.purpose.take(500),
-        "issuedTo" to e.issuedTo.take(160),
-        "qidOrNote" to e.qidOrNote.take(200),
-        "dateIn" to e.dateIn.take(40),
-        "timeIn" to e.timeIn.take(40),
-        "returnedBy" to e.returnedBy.take(160),
-        "remarks" to e.remarks.take(500),
-        "status" to normalizeStatus(e.status),
-        "updatedAtMillis" to e.updatedAtMillis.coerceAtLeast(0L),
-        "createdAt" to FieldValue.serverTimestamp(),
-        "updatedAt" to FieldValue.serverTimestamp()
-    )
+    private fun keyToCreateMap(e: KeyRegisterEntity): Map<String, Any> = buildMap {
+        put("si", e.si)
+        put("dateOut", e.dateOut.take(40))
+        put("timeOut", e.timeOut.take(40))
+        put("flatUnitLocation", e.flatUnitLocation.take(120))
+        put("keyCardType", e.keyCardType.take(120))
+        put("purpose", e.purpose.take(500))
+        put("issuedTo", e.issuedTo.take(160))
+        if (e.issuedBy.isNotBlank()) put("issuedBy", e.issuedBy.take(160))
+        put("qidOrNote", e.qidOrNote.take(200))
+        put("dateIn", e.dateIn.take(40))
+        put("timeIn", e.timeIn.take(40))
+        put("returnedBy", e.returnedBy.take(160))
+        put("remarks", e.remarks.take(500))
+        put("status", normalizeStatus(e.status))
+        put("updatedAtMillis", e.updatedAtMillis.coerceAtLeast(0L))
+        put("createdAt", FieldValue.serverTimestamp())
+        put("updatedAt", FieldValue.serverTimestamp())
+    }
 
-    private fun keyToUpdateMap(e: KeyRegisterEntity): Map<String, Any> = mapOf(
-        "dateOut" to e.dateOut.take(40),
-        "timeOut" to e.timeOut.take(40),
-        "flatUnitLocation" to e.flatUnitLocation.take(120),
-        "keyCardType" to e.keyCardType.take(120),
-        "purpose" to e.purpose.take(500),
-        "issuedTo" to e.issuedTo.take(160),
-        "qidOrNote" to e.qidOrNote.take(200),
-        "dateIn" to e.dateIn.take(40),
-        "timeIn" to e.timeIn.take(40),
-        "returnedBy" to e.returnedBy.take(160),
-        "remarks" to e.remarks.take(500),
-        "status" to normalizeStatus(e.status),
-        "updatedAtMillis" to e.updatedAtMillis.coerceAtLeast(0L),
-        "updatedAt" to FieldValue.serverTimestamp()
-    )
+    private fun keyToUpdateMap(e: KeyRegisterEntity): Map<String, Any> = buildMap {
+        put("dateOut", e.dateOut.take(40))
+        put("timeOut", e.timeOut.take(40))
+        put("flatUnitLocation", e.flatUnitLocation.take(120))
+        put("keyCardType", e.keyCardType.take(120))
+        put("purpose", e.purpose.take(500))
+        put("issuedTo", e.issuedTo.take(160))
+        if (e.issuedBy.isNotBlank()) put("issuedBy", e.issuedBy.take(160)) else put("issuedBy", FieldValue.delete())
+        put("qidOrNote", e.qidOrNote.take(200))
+        put("dateIn", e.dateIn.take(40))
+        put("timeIn", e.timeIn.take(40))
+        put("returnedBy", e.returnedBy.take(160))
+        put("remarks", e.remarks.take(500))
+        put("status", normalizeStatus(e.status))
+        put("updatedAtMillis", e.updatedAtMillis.coerceAtLeast(0L))
+        put("updatedAt", FieldValue.serverTimestamp())
+    }
 
     private fun visitorToCreateMap(e: VisitorDayEntity): Map<String, Any> = mapOf(
         "dateIso" to e.dateIso.take(20),
@@ -639,7 +796,12 @@ class FirestoreSyncRepository(
     }
 
     private fun normalizeReminderType(raw: String): String = when (raw) {
-        ReminderType.DAILY_0740, ReminderType.SAT_AUDIT_0900, ReminderType.KEY_NEXT_DAY -> raw
+        ReminderType.DAILY_0740,
+        ReminderType.DAILY_1530,
+        ReminderType.SAT_AUDIT_0900,
+        ReminderType.WEEKLY_REPORT_FRI,
+        ReminderType.MONTHLY_REPORT_EOM,
+        ReminderType.KEY_NEXT_DAY -> raw
         else -> ReminderType.KEY_NEXT_DAY
     }
 
@@ -670,27 +832,94 @@ class FirestoreSyncRepository(
         put("updatedAt", FieldValue.serverTimestamp())
     }
 
+    private fun inspectionToCreateMap(e: InspectionReportEntity): Map<String, Any> = mapOf(
+        "id" to e.id.take(100),
+        "buildingName" to e.buildingName.ifBlank { "Building" }.take(160),
+        "inspectionDate" to e.inspectionDate.ifBlank { "27/11/2026" }.take(40),
+        "inspectorName" to e.inspectorName.ifBlank { "Operator" }.take(160),
+        "itemCount" to e.itemCount.coerceAtLeast(0),
+        "summaryNote" to e.summaryNote.take(1000),
+        "localFilePath" to e.localFilePath.take(500),
+        "driveFileId" to e.driveFileId.take(200),
+        "createdAtMillis" to e.createdAtMillis.coerceAtLeast(0L),
+        "createdAt" to FieldValue.serverTimestamp(),
+        "updatedAt" to FieldValue.serverTimestamp()
+    )
+
+    private fun inspectionToUpdateMap(e: InspectionReportEntity): Map<String, Any> = mapOf(
+        "buildingName" to e.buildingName.ifBlank { "Building" }.take(160),
+        "inspectionDate" to e.inspectionDate.ifBlank { "27/11/2026" }.take(40),
+        "inspectorName" to e.inspectorName.ifBlank { "Operator" }.take(160),
+        "itemCount" to e.itemCount.coerceAtLeast(0),
+        "summaryNote" to e.summaryNote.take(1000),
+        "localFilePath" to e.localFilePath.take(500),
+        "driveFileId" to e.driveFileId.take(200),
+        "createdAtMillis" to e.createdAtMillis.coerceAtLeast(0L),
+        "updatedAt" to FieldValue.serverTimestamp()
+    )
+
+    private fun dispatchToCreateMap(e: ReportDispatchEntity): Map<String, Any> = mapOf(
+        "id" to e.id.take(100),
+        "reportType" to (e.reportType.takeIf { it in listOf("INSPECTION", "WEEKLY", "MONTHLY") } ?: "WEEKLY"),
+        "subject" to e.subject.ifBlank { "Report" }.take(300),
+        "periodLabel" to e.periodLabel.take(120),
+        "recipientsTo" to e.recipientsTo.take(500),
+        "recipientsCc" to e.recipientsCc.take(500),
+        "attachmentNames" to e.attachmentNames.take(500),
+        "localPaths" to e.localPaths.take(1000),
+        "driveStatus" to e.driveStatus.take(200),
+        "dispatchChannel" to (e.dispatchChannel.takeIf { it in listOf("GMAIL_API", "EMAIL_INTENT", "LOCAL_ARCHIVE") } ?: "LOCAL_ARCHIVE"),
+        "sentAtMillis" to e.sentAtMillis.coerceAtLeast(0L),
+        "createdAt" to FieldValue.serverTimestamp(),
+        "updatedAt" to FieldValue.serverTimestamp()
+    )
+
+    private fun dispatchToUpdateMap(e: ReportDispatchEntity): Map<String, Any> = mapOf(
+        "reportType" to (e.reportType.takeIf { it in listOf("INSPECTION", "WEEKLY", "MONTHLY") } ?: "WEEKLY"),
+        "subject" to e.subject.ifBlank { "Report" }.take(300),
+        "periodLabel" to e.periodLabel.take(120),
+        "recipientsTo" to e.recipientsTo.take(500),
+        "recipientsCc" to e.recipientsCc.take(500),
+        "attachmentNames" to e.attachmentNames.take(500),
+        "localPaths" to e.localPaths.take(1000),
+        "driveStatus" to e.driveStatus.take(200),
+        "dispatchChannel" to (e.dispatchChannel.takeIf { it in listOf("GMAIL_API", "EMAIL_INTENT", "LOCAL_ARCHIVE") } ?: "LOCAL_ARCHIVE"),
+        "sentAtMillis" to e.sentAtMillis.coerceAtLeast(0L),
+        "updatedAt" to FieldValue.serverTimestamp()
+    )
+
     // -------------------------------------------------------------------------
     // Safe Deserializers (ESTIMATE ServerTimestampBehavior + safe Number casts)
     // -------------------------------------------------------------------------
     private fun docToKeyEntity(doc: DocumentSnapshot): KeyRegisterEntity? {
         val data = doc.getData(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) ?: return null
         val si = (data["si"] as? Number)?.toInt() ?: doc.id.toIntOrNull() ?: return null
+        val purpose = (data["purpose"] as? String).orEmpty()
+        val rawStatus = (data["status"] as? String).orEmpty().ifBlank { KeyStatus.ISSUED }
+        val normalizedStatus = if (
+            KeyStatus.isMoveInPurpose(purpose) &&
+            (rawStatus.equals(KeyStatus.ISSUED, true) || rawStatus.equals(KeyStatus.NOT_YET_RETURNED, true))
+        ) {
+            KeyStatus.MOVE_IN_PENDING_TCODE
+        } else {
+            rawStatus
+        }
         return KeyRegisterEntity(
             si = si,
             dateOut = (data["dateOut"] as? String).orEmpty(),
             timeOut = (data["timeOut"] as? String).orEmpty(),
             flatUnitLocation = (data["flatUnitLocation"] as? String).orEmpty(),
             keyCardType = (data["keyCardType"] as? String).orEmpty(),
-            purpose = (data["purpose"] as? String).orEmpty(),
+            purpose = purpose,
             issuedTo = (data["issuedTo"] as? String).orEmpty(),
             qidOrNote = (data["qidOrNote"] as? String).orEmpty(),
             dateIn = (data["dateIn"] as? String).orEmpty(),
             timeIn = (data["timeIn"] as? String).orEmpty(),
             returnedBy = (data["returnedBy"] as? String).orEmpty(),
             remarks = (data["remarks"] as? String).orEmpty(),
-            status = (data["status"] as? String).orEmpty().ifBlank { KeyStatus.ISSUED },
-            updatedAtMillis = (data["updatedAtMillis"] as? Number)?.toLong() ?: System.currentTimeMillis()
+            status = normalizedStatus,
+            updatedAtMillis = (data["updatedAtMillis"] as? Number)?.toLong() ?: System.currentTimeMillis(),
+            issuedBy = (data["issuedBy"] as? String).orEmpty()
         )
     }
 
@@ -754,6 +983,40 @@ class FirestoreSyncRepository(
             snoozedUntilMillis = (data["snoozedUntilMillis"] as? Number)?.toLong(),
             isDone = (data["done"] as? Boolean) ?: false,
             checklistMask = (data["checklistMask"] as? Number)?.toInt() ?: 0
+        )
+    }
+
+    private fun docToInspectionEntity(doc: DocumentSnapshot): InspectionReportEntity? {
+        val data = doc.getData(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) ?: return null
+        val id = (data["id"] as? String)?.takeIf { it.isNotBlank() } ?: doc.id
+        return InspectionReportEntity(
+            id = id,
+            buildingName = (data["buildingName"] as? String).orEmpty(),
+            inspectionDate = (data["inspectionDate"] as? String).orEmpty(),
+            inspectorName = (data["inspectorName"] as? String).orEmpty(),
+            itemCount = (data["itemCount"] as? Number)?.toInt() ?: 0,
+            summaryNote = (data["summaryNote"] as? String).orEmpty(),
+            localFilePath = (data["localFilePath"] as? String).orEmpty(),
+            driveFileId = (data["driveFileId"] as? String).orEmpty(),
+            createdAtMillis = (data["createdAtMillis"] as? Number)?.toLong() ?: System.currentTimeMillis()
+        )
+    }
+
+    private fun docToDispatchEntity(doc: DocumentSnapshot): ReportDispatchEntity? {
+        val data = doc.getData(DocumentSnapshot.ServerTimestampBehavior.ESTIMATE) ?: return null
+        val id = (data["id"] as? String)?.takeIf { it.isNotBlank() } ?: doc.id
+        return ReportDispatchEntity(
+            id = id,
+            reportType = (data["reportType"] as? String).orEmpty().ifBlank { "WEEKLY" },
+            subject = (data["subject"] as? String).orEmpty(),
+            periodLabel = (data["periodLabel"] as? String).orEmpty(),
+            recipientsTo = (data["recipientsTo"] as? String).orEmpty(),
+            recipientsCc = (data["recipientsCc"] as? String).orEmpty(),
+            attachmentNames = (data["attachmentNames"] as? String).orEmpty(),
+            localPaths = (data["localPaths"] as? String).orEmpty(),
+            driveStatus = (data["driveStatus"] as? String).orEmpty(),
+            dispatchChannel = (data["dispatchChannel"] as? String).orEmpty().ifBlank { "LOCAL_ARCHIVE" },
+            sentAtMillis = (data["sentAtMillis"] as? Number)?.toLong() ?: System.currentTimeMillis()
         )
     }
 }

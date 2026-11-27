@@ -45,6 +45,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -82,6 +84,7 @@ import com.example.ui.components.springPressScale
 import com.example.ui.theme.LocalReducedMotion
 import com.example.ui.theme.OpsTabularFontFamily
 import com.example.ui.theme.OpsAmber
+import com.example.ui.theme.OpsAmberDeep
 import com.example.ui.theme.OpsBorder
 import com.example.ui.theme.OpsConsole
 import com.example.ui.theme.OpsCrimson
@@ -98,7 +101,9 @@ import com.example.ui.theme.OpsWhite
 fun VisitorsMaintenanceScreen(
     visitors: List<VisitorDayEntity>,
     maintenance: List<MaintenanceRequestEntity>,
+    visitorQuery: String,
     maintenanceQuery: String,
+    onVisitorQueryChange: (String) -> Unit,
     onMaintenanceQueryChange: (String) -> Unit,
     onPlusOneVisitor: () -> Unit,
     onPlusOneViewing: (String) -> Unit,
@@ -146,9 +151,18 @@ fun VisitorsMaintenanceScreen(
                 )
             }
     }
-    val displayedVisitors = remember(visitors, selectedMonthKey) {
+    val displayedVisitors = remember(visitors, selectedMonthKey, visitorQuery) {
         val m = selectedMonthKey
-        if (m == null) visitors else visitors.filter { it.monthKey == m }
+        val q = visitorQuery.trim().lowercase()
+        visitors.filter { day ->
+            val matchesMonth = m == null || day.monthKey == m
+            val matchesQuery = q.isBlank() ||
+                day.dateIso.lowercase().contains(q) ||
+                day.displayDate.lowercase().contains(q) ||
+                day.flatDetails.lowercase().contains(q) ||
+                day.notes.lowercase().contains(q)
+            matchesMonth && matchesQuery
+        }
     }
 
     Scaffold(
@@ -417,6 +431,56 @@ fun VisitorsMaintenanceScreen(
                                         color = OpsSteel
                                     )
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Search & Quick Date/Unit Chips for PM Visitors
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = visitorQuery,
+                            onValueChange = onVisitorQueryChange,
+                            placeholder = { Text("Filter visitors by date or flat (e.g. M-C13-16)...") },
+                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = OpsSteel) },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("visitor_search_input")
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = visitorQuery.isBlank(),
+                                onClick = { onVisitorQueryChange("") },
+                                label = { Text("All") },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = OpsConsole,
+                                    labelColor = OpsSteel,
+                                    selectedContainerColor = OpsCyanDeep,
+                                    selectedLabelColor = OpsCyan
+                                ),
+                                modifier = Modifier.testTag("visitor_chip_all")
+                            )
+                            listOf("26-Nov-2026", "M-C13-16", "M-C15-21", "M-F30-18", "M-D18-41").forEach { tag ->
+                                val selectedTag = visitorQuery.equals(tag, ignoreCase = true)
+                                FilterChip(
+                                    selected = selectedTag,
+                                    onClick = { onVisitorQueryChange(if (selectedTag) "" else tag) },
+                                    label = { Text(tag) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        containerColor = OpsConsole,
+                                        labelColor = OpsSteel,
+                                        selectedContainerColor = if (tag == "26-Nov-2026") OpsAmberDeep else OpsCyanDeep,
+                                        selectedLabelColor = if (tag == "26-Nov-2026") OpsAmber else OpsCyan
+                                    ),
+                                    modifier = Modifier.testTag("visitor_chip_$tag")
+                                )
                             }
                         }
                     }

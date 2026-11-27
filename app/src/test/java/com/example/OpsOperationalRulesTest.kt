@@ -3,30 +3,33 @@ package com.example
 import com.example.data.db.KeyRegisterEntity
 import com.example.data.db.KeyStatus
 import com.example.data.db.SeedDataProvider
+import com.example.data.sync.InspectionExportItem
 import com.example.data.sync.TestRecordFilter
 import com.example.data.sync.XlsxEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.util.zip.ZipInputStream
 
 class OpsOperationalRulesTest {
 
     @Test
-    fun sportsBaselineMatchesExactNov1To25Totals() {
+    fun sportsBaselineMatchesNov1To26EntriesAndCounts() {
         val sports = SeedDataProvider.buildSportsBookingsSeed()
         val football = sports.filter { it.sport == "FOOTBALL" }
         val padel = sports.filter { it.sport == "PADEL" }
 
-        assertEquals(135, sports.size)
-        assertEquals(79, football.size)
-        assertEquals(56, padel.size)
-        assertEquals(106.5, football.sumOf { it.durationPlayed }, 0.001)
-        assertEquals(59.5, padel.sumOf { it.durationPlayed }, 0.001)
-        assertEquals(166.0, sports.sumOf { it.durationPlayed }, 0.001)
+        assertEquals(140, sports.size)
+        assertEquals(82, football.size)
+        assertEquals(58, padel.size)
+        assertEquals(112.5, football.sumOf { it.durationPlayed }, 0.001)
+        assertEquals(62.0, padel.sumOf { it.durationPlayed }, 0.001)
+        assertEquals(174.5, sports.sumOf { it.durationPlayed }, 0.001)
         assertTrue(sports.all { it.discount == "FREE" })
-        assertFalse(sports.any { it.date.startsWith("26/11") })
+        assertTrue(sports.any { it.date == "26/11/2026" })
 
         val bySn = sports.associateBy { it.sn }
         assertEquals("MR. AYAAN", bySn[1]?.name)
@@ -35,23 +38,55 @@ class OpsOperationalRulesTest {
         assertEquals("CALL CENTER APPROVAL", bySn[133]?.remarks)
         assertEquals("MR. MUNICH", bySn[139]?.name)
         assertEquals("MM-A06-46", bySn[139]?.unitDetails)
+
+        // Nov 26, 2026 entries SN 140-144
+        assertEquals("MR. SANTOSH", bySn[140]?.name)
+        assertEquals("MM-A01-22", bySn[140]?.unitDetails)
+        assertEquals("MR. HASEEB", bySn[141]?.name)
+        assertEquals("PADEL", bySn[141]?.sport)
+        assertEquals("MR. YOUSSEF MANI", bySn[142]?.name)
+        assertEquals(3.0, bySn[142]?.durationPlayed ?: 0.0, 0.001)
+        assertEquals("MR. SHADY", bySn[143]?.name)
+        assertEquals("MM-D17-33", bySn[143]?.unitDetails)
+        assertEquals("MR. WARID", bySn[144]?.name)
+        assertEquals("MM-F27-37", bySn[144]?.unitDetails)
+
         assertEquals(1.5, XlsxEngine.parseDurationPlayed("1 HOUR & 30 MINUTES"), 0.001)
         assertEquals(3.5, XlsxEngine.parseDurationPlayed("3 HOURS & 30 MINUTES"), 0.001)
     }
 
     @Test
-    fun keyRegisterStrictRedAlertsAndTestExclusionWork() {
+    fun keyRegisterStrictRedAlertsMoveInExclusionAndIssuedByExportRuleWork() {
         val keys = SeedDataProvider.buildKeyRegisterSeed()
         val alertSis = keys.filter { it.isUnreturnedAlert }.map { it.si }.toSet()
 
-        assertEquals(setOf(1283, 1634, 1638, 1639, 1643, 1644, 1645), alertSis)
-        assertTrue(keys.any { it.si == 1634 && it.flatUnitLocation == "M-A04-16" && it.isUnreturnedAlert })
-        assertTrue(keys.any { it.si == 1283 && it.flatUnitLocation == "M-B09-12" && it.isUnreturnedAlert })
+        // Strictly exclude Move-In keys from red key-out alerts: only SI 1283 (Jul backlog), 1634, 1643
+        assertEquals(setOf(1283, 1634, 1643), alertSis)
+        val currentMonthAlertSis = keys.filter { it.isCurrentMonthUnreturnedAlert }.map { it.si }.toSet()
+        assertEquals(setOf(1634, 1643), currentMonthAlertSis)
+        assertTrue(keys.any { it.si == 1634 && it.flatUnitLocation == "M-A04-16" && it.isCurrentMonthUnreturnedAlert })
+        assertTrue(keys.any { it.si == 1643 && it.flatUnitLocation == "M-F30-18" && it.isCurrentMonthUnreturnedAlert })
+        assertTrue(keys.any { it.si == 1283 && it.flatUnitLocation == "M-B09-12" && it.isUnreturnedAlert && !it.isCurrentMonthUnreturnedAlert })
 
-        // Settled Move-in / Transfer rows with confirmed T-codes must not be highlighted red
+        // Nov 26 Move-In keys (SI 1638, 1639, 1644, 1645) are amber Move-In Pending T-Code, NOT red alerts
+        val moveInPendingSis = setOf(1638, 1639, 1644, 1645)
+        assertEquals(4, keys.count { it.isMoveInPendingTCode })
+        moveInPendingSis.forEach { si ->
+            val row = keys.first { it.si == si }
+            assertEquals(KeyStatus.MOVE_IN_PENDING_TCODE, row.status)
+            assertTrue("SI $si should be Move-In Pending T-Code", row.isMoveInPendingTCode)
+            assertFalse("SI $si must NOT be counted as red alert", row.isUnreturnedAlert)
+        }
+
+        // Physical issuers retained in-app (SI 1634 -> Mr. Israel Agbofa, SI 1643 -> Mr. Aqib Rehman)
+        assertEquals("Mr. Israel Agbofa", keys.first { it.si == 1634 }.issuedBy)
+        assertEquals("Mr. Aqib Rehman", keys.first { it.si == 1643 }.issuedBy)
+
+        // Settled Move-in / Transfer rows with confirmed T-codes must not be highlighted red or amber
         val settledMoveIn = keys.first { it.si == 90 }
         assertEquals(KeyStatus.ISSUED_TO_TENANT, settledMoveIn.status)
         assertFalse(settledMoveIn.isUnreturnedAlert)
+        assertFalse(settledMoveIn.isMoveInPendingTCode)
 
         val testCharle = KeyRegisterEntity(
             si = 9991, dateOut = "20/11/2026", timeOut = "10:00", flatUnitLocation = "M-A01-01",
@@ -110,7 +145,7 @@ class OpsOperationalRulesTest {
     }
 
     @Test
-    fun xlsxExportCreatesValidOoxmlPackage() {
+    fun xlsxExportCreatesValidOoxmlPackageAndInspectionEmbedsPhotos() {
         val keys = SeedDataProvider.buildKeyRegisterSeed()
         val visitors = SeedDataProvider.buildVisitorDaysSeed()
         val maintenance = SeedDataProvider.buildMaintenanceSeed()
@@ -120,8 +155,82 @@ class OpsOperationalRulesTest {
         XlsxEngine.writeAllWorkbooksXlsx(baos, keys, visitors, maintenance, sports)
         val bytes = baos.toByteArray()
         assertTrue(bytes.size > 4000)
-        // ZIP magic header PK
         assertEquals('P'.code.toByte(), bytes[0])
         assertEquals('K'.code.toByte(), bytes[1])
+
+        // Verify Key Register standalone XLSX normalizes Issued By to Mr. Rodel Cabrales
+        val keysBaos = ByteArrayOutputStream()
+        XlsxEngine.writeKeyRegisterXlsx(keysBaos, keys)
+        val parsed = XlsxEngine.readXlsx(ByteArrayInputStream(keysBaos.toByteArray()))
+        val row1634 = parsed.keys.first { it.si == 1634 }
+        assertEquals(XlsxEngine.EXPORT_ISSUED_BY_DEFAULT, row1634.issuedBy)
+
+        // Verify Building Inspection XLSX embeds JPEGs in OOXML drawing relationships
+        val fakeJpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 0x00, 0x10)
+        val inspBaos = ByteArrayOutputStream()
+        XlsxEngine.writeInspectionReportXlsx(
+            output = inspBaos,
+            buildingName = "Building A04",
+            inspectionDate = "27/11/2026",
+            inspectorName = "Emmanuel Ssali",
+            items = listOf(
+                InspectionExportItem(
+                    id = "1",
+                    area = "Corridor",
+                    finding = "Emergency light tested OK",
+                    severity = "Pass",
+                    actionRequired = "None",
+                    jpegBytes = fakeJpeg
+                )
+            )
+        )
+        val zipEntries = mutableSetOf<String>()
+        var drawingXml = ""
+        ZipInputStream(ByteArrayInputStream(inspBaos.toByteArray())).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                zipEntries.add(entry.name)
+                if (entry.name == "xl/drawings/drawing1.xml") {
+                    drawingXml = zis.readBytes().toString(Charsets.UTF_8)
+                }
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+        }
+        assertTrue(zipEntries.contains("xl/media/image1.jpg"))
+        assertTrue(zipEntries.contains("xl/drawings/drawing1.xml"))
+        assertTrue(zipEntries.contains("xl/drawings/_rels/drawing1.xml.rels"))
+        assertTrue(zipEntries.contains("xl/worksheets/_rels/sheet1.xml.rels"))
+        assertTrue(drawingXml.contains("twoCellAnchor"))
+
+        // Verify combined Visitors + Maintenance 2-sheet XLSX
+        val vmBaos = ByteArrayOutputStream()
+        XlsxEngine.writeVisitorsAndMaintenanceXlsx(vmBaos, visitors, maintenance)
+        val vmZipEntries = mutableSetOf<String>()
+        ZipInputStream(ByteArrayInputStream(vmBaos.toByteArray())).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                vmZipEntries.add(entry.name)
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+        }
+        assertTrue(vmZipEntries.contains("xl/worksheets/sheet1.xml"))
+        assertTrue(vmZipEntries.contains("xl/worksheets/sheet2.xml"))
+    }
+
+    @Test
+    fun weeklyAndMonthlyRemindersTargetSaturdayAndFirstDayOfMonth() {
+        val keys = SeedDataProvider.buildKeyRegisterSeed()
+        val reminders = SeedDataProvider.buildInitialRemindersSeed(keys)
+        val tz = java.util.TimeZone.getTimeZone("Asia/Qatar")
+
+        val weekly = reminders.first { it.id == "weekly_report_fri" }
+        val weeklyCal = java.util.Calendar.getInstance(tz).apply { timeInMillis = weekly.scheduledAtMillis }
+        assertEquals(java.util.Calendar.SATURDAY, weeklyCal.get(java.util.Calendar.DAY_OF_WEEK))
+
+        val monthly = reminders.first { it.id == "monthly_report_eom" }
+        val monthlyCal = java.util.Calendar.getInstance(tz).apply { timeInMillis = monthly.scheduledAtMillis }
+        assertEquals(1, monthlyCal.get(java.util.Calendar.DAY_OF_MONTH))
     }
 }

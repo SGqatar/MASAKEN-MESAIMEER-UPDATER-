@@ -10,7 +10,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -57,7 +61,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -92,14 +96,18 @@ import com.example.ui.theme.OpsSteel
 import com.example.ui.theme.OpsWhite
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun KeyRegisterScreen(
     allKeys: List<KeyRegisterEntity>,
     filteredKeys: List<KeyRegisterEntity>,
     selectedFilter: KeyFilterMode,
+    selectedDateFilter: String,
     searchQuery: String,
     onSelectFilter: (KeyFilterMode) -> Unit,
+    onJumpToSummaryFilter: (KeyFilterMode, String, String) -> Unit,
+    onResetFilters: () -> Unit,
+    onSelectDateFilter: (String) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onAllocateNextSi: suspend () -> Int,
     onSaveKeyEntry: (KeyRegisterEntity) -> Unit,
@@ -113,7 +121,12 @@ fun KeyRegisterScreen(
     var editingEntry by remember { mutableStateOf<KeyRegisterEntity?>(null) }
     var returningEntry by remember { mutableStateOf<KeyRegisterEntity?>(null) }
 
-    val unreturnedCount = remember(allKeys) { allKeys.count { it.isUnreturnedAlert } }
+    val novUnreturnedKeys = remember(allKeys) { allKeys.filter { it.isCurrentMonthUnreturnedAlert } }
+    val backlogUnreturnedKeys = remember(allKeys) { allKeys.filter { it.isUnreturnedAlert && !it.isCurrentMonthUnreturnedAlert } }
+    val unreturnedCount = novUnreturnedKeys.size
+    val moveInPendingKeys = remember(allKeys) { allKeys.filter { it.isMoveInPendingTCode } }
+    val moveInPendingCount = moveInPendingKeys.size
+    val settledCount = remember(allKeys) { allKeys.count { !it.isUnreturnedAlert && !it.isMoveInPendingTCode } }
     val pendingReconcileCount = remember(allKeys) { allKeys.count { it.needsNovemberReconciliation } }
 
     Scaffold(
@@ -137,7 +150,8 @@ fun KeyRegisterScreen(
                             timeIn = "",
                             returnedBy = "",
                             remarks = "",
-                            status = KeyStatus.ISSUED
+                            status = KeyStatus.ISSUED,
+                            issuedBy = "Mr. Rodel Cabrales"
                         )
                     }
                 },
@@ -199,6 +213,82 @@ fun KeyRegisterScreen(
                 }
             }
 
+            // November 26-27 Key Register Operational Summary Strip
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = OpsConsole),
+                    border = BorderStroke(1.dp, OpsBorder),
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.testTag("key_register_summary_strip")
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val novUnitsText = novUnreturnedKeys.joinToString(", ") {
+                                it.flatUnitLocation.removePrefix("M-")
+                            }.ifBlank { "None" }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable {
+                                        onJumpToSummaryFilter(KeyFilterMode.UNRETURNED, "ALL", "")
+                                    }
+                                    .testTag("summary_pill_unreturned_nov")
+                            ) {
+                                OpsStatusPill(
+                                    label = "$unreturnedCount Unreturned (Nov): $novUnitsText",
+                                    containerColor = OpsCrimsonSurface,
+                                    contentColor = OpsCrimsonText
+                                )
+                            }
+                            val moveInUnitsText = moveInPendingKeys.joinToString(", ") {
+                                it.flatUnitLocation.removePrefix("M-")
+                            }.ifBlank { "None" }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable {
+                                        onJumpToSummaryFilter(KeyFilterMode.MOVE_IN_PENDING, "ALL", "")
+                                    }
+                                    .testTag("summary_pill_move_in_yesterday")
+                            ) {
+                                OpsStatusPill(
+                                    label = "$moveInPendingCount Move-In (Yesterday): $moveInUnitsText",
+                                    containerColor = OpsAmberDeep,
+                                    contentColor = OpsAmber
+                                )
+                            }
+                        }
+                        if (backlogUnreturnedKeys.isNotEmpty()) {
+                            val backlogLabels = backlogUnreturnedKeys.joinToString(", ") { "SI ${it.si} (${it.flatUnitLocation})" }
+                            Text(
+                                text = "Red Backlog (Confirm Later): $backlogLabels — tap to inspect",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OpsCrimsonText,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .clickable {
+                                        onJumpToSummaryFilter(
+                                            KeyFilterMode.UNRETURNED,
+                                            "ALL",
+                                            backlogUnreturnedKeys.first().si.toString()
+                                        )
+                                    }
+                                    .padding(vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             // November Return Reconciliation Helper (11/26/2026 at 16:36)
             if (pendingReconcileCount > 0) {
                 item {
@@ -245,7 +335,7 @@ fun KeyRegisterScreen(
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = onSearchQueryChange,
-                        placeholder = { Text("Search SI, flat (M-A04-16), name, or QID...") },
+                        placeholder = { Text("Search SI, flat (M-A04-16), name, issuer, or QID...") },
                         leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = OpsSteel) },
                         singleLine = true,
                         modifier = Modifier
@@ -261,8 +351,13 @@ fun KeyRegisterScreen(
                         KeyFilterMode.entries.forEach { mode ->
                             val badge = when (mode) {
                                 KeyFilterMode.ALL -> "${allKeys.size}"
-                                KeyFilterMode.UNRETURNED -> "$unreturnedCount"
-                                KeyFilterMode.RETURNED -> "${allKeys.size - unreturnedCount}"
+                                KeyFilterMode.UNRETURNED -> if (backlogUnreturnedKeys.isNotEmpty()) {
+                                    "$unreturnedCount+${backlogUnreturnedKeys.size} Jul"
+                                } else {
+                                    "$unreturnedCount"
+                                }
+                                KeyFilterMode.MOVE_IN_PENDING -> "$moveInPendingCount"
+                                KeyFilterMode.RETURNED -> "$settledCount"
                                 KeyFilterMode.NEEDS_NOV_RECONCILE -> "$pendingReconcileCount"
                             }
                             FilterChip(
@@ -272,10 +367,65 @@ fun KeyRegisterScreen(
                                 colors = FilterChipDefaults.filterChipColors(
                                     containerColor = OpsConsole,
                                     labelColor = OpsSteel,
-                                    selectedContainerColor = if (mode == KeyFilterMode.UNRETURNED) OpsCrimsonSurface else OpsCyanDeep,
-                                    selectedLabelColor = if (mode == KeyFilterMode.UNRETURNED) OpsCrimsonText else OpsCyan
+                                    selectedContainerColor = when (mode) {
+                                        KeyFilterMode.UNRETURNED -> OpsCrimsonSurface
+                                        KeyFilterMode.MOVE_IN_PENDING -> OpsAmberDeep
+                                        else -> OpsCyanDeep
+                                    },
+                                    selectedLabelColor = when (mode) {
+                                        KeyFilterMode.UNRETURNED -> OpsCrimsonText
+                                        KeyFilterMode.MOVE_IN_PENDING -> OpsAmber
+                                        else -> OpsCyan
+                                    }
                                 ),
                                 modifier = Modifier.testTag("key_filter_${mode.name.lowercase()}")
+                            )
+                        }
+                    }
+                    // Quick Date & Priority Unit Filter Chips
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = selectedDateFilter == "ALL",
+                            onClick = { onSelectDateFilter("ALL") },
+                            label = { Text("All Dates") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = OpsConsole,
+                                labelColor = OpsSteel,
+                                selectedContainerColor = OpsCyanDeep,
+                                selectedLabelColor = OpsCyan
+                            ),
+                            modifier = Modifier.testTag("key_date_all")
+                        )
+                        FilterChip(
+                            selected = selectedDateFilter == "NOV26",
+                            onClick = { onSelectDateFilter(if (selectedDateFilter == "NOV26") "ALL" else "NOV26") },
+                            label = { Text("26-Nov-2026") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = OpsConsole,
+                                labelColor = OpsSteel,
+                                selectedContainerColor = OpsAmberDeep,
+                                selectedLabelColor = OpsAmber
+                            ),
+                            modifier = Modifier.testTag("key_date_nov26")
+                        )
+                        listOf("M-A04-16", "M-F30-18", "M-C13-16", "M-C15-21").forEach { unitCode ->
+                            val isSelected = searchQuery.equals(unitCode, ignoreCase = true)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { onSearchQueryChange(if (isSelected) "" else unitCode) },
+                                label = { Text(unitCode) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = OpsConsole,
+                                    labelColor = OpsSteel,
+                                    selectedContainerColor = OpsCyanDeep,
+                                    selectedLabelColor = OpsCyan
+                                ),
+                                modifier = Modifier.testTag("key_unit_chip_$unitCode")
                             )
                         }
                     }
@@ -293,11 +443,20 @@ fun KeyRegisterScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(Icons.Filled.Key, contentDescription = null, tint = OpsSteel, modifier = Modifier.size(36.dp))
-                            Spacer(Modifier.height(8.dp))
                             Text("No key register rows match this filter.", color = OpsSteel)
+                            if (selectedFilter != KeyFilterMode.ALL || selectedDateFilter != "ALL" || searchQuery.isNotBlank()) {
+                                SpringOutlinedButton(
+                                    onClick = onResetFilters,
+                                    border = BorderStroke(1.dp, OpsCyan.copy(alpha = 0.7f)),
+                                    modifier = Modifier.testTag("reset_key_filters_button")
+                                ) {
+                                    Text("Reset Filters", color = OpsCyan)
+                                }
+                            }
                         }
                     }
                 }
@@ -348,15 +507,25 @@ private fun KeyRegisterRowCard(
 ) {
     val reducedMotion = LocalReducedMotion.current
     val isAlert = entry.isUnreturnedAlert
+    val isMoveInPending = entry.isMoveInPendingTCode
 
-    // Strictly reserve red fill / red highlight for unreturned or active issued keys
+    // Strictly reserve red fill / red highlight ONLY for non-move-in unreturned keys;
+    // Move-In keys given to client use amber follow-up styling.
     val containerColor by animateColorAsState(
-        targetValue = if (isAlert) OpsCrimsonSurface else OpsConsole,
+        targetValue = when {
+            isAlert -> OpsCrimsonSurface
+            isMoveInPending -> OpsAmberDeep
+            else -> OpsConsole
+        },
         animationSpec = if (reducedMotion) snap() else spring(stiffness = Spring.StiffnessMediumLow),
         label = "keyRowBg"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (isAlert) OpsCrimsonBorder else OpsBorder,
+        targetValue = when {
+            isAlert -> OpsCrimsonBorder
+            isMoveInPending -> OpsAmber.copy(alpha = 0.65f)
+            else -> OpsBorder
+        },
         animationSpec = if (reducedMotion) snap() else spring(stiffness = Spring.StiffnessMediumLow),
         label = "keyRowBorder"
     )
@@ -388,11 +557,17 @@ private fun KeyRegisterRowCard(
                 ) {
                     if (isAlert) {
                         LivePulseBeacon(color = OpsCrimson, size = 7.dp)
+                    } else if (isMoveInPending) {
+                        LivePulseBeacon(color = OpsAmber, size = 7.dp)
                     }
                     Text(
                         text = "SI ${entry.si}",
                         style = MaterialTheme.typography.titleMedium.copy(fontFamily = OpsTabularFontFamily),
-                        color = if (isAlert) OpsCrimsonText else OpsCyan
+                        color = when {
+                            isAlert -> OpsCrimsonText
+                            isMoveInPending -> OpsAmber
+                            else -> OpsCyan
+                        }
                     )
                     Text(
                         text = entry.flatUnitLocation,
@@ -401,15 +576,22 @@ private fun KeyRegisterRowCard(
                     )
                 }
                 val isTenantIssued = entry.status.equals(KeyStatus.ISSUED_TO_TENANT, ignoreCase = true)
+                val isBacklogRed = isAlert && !entry.isCurrentMonthUnreturnedAlert
                 OpsStatusPill(
-                    label = entry.status.uppercase(),
+                    label = when {
+                        isMoveInPending -> "MOVE-IN • PENDING T-CODE"
+                        isBacklogRed -> "JUL RED • CONFIRM LATER"
+                        else -> entry.status.uppercase()
+                    },
                     containerColor = when {
-                        isAlert -> Color(0xFF4C111B)
+                        isAlert -> OpsCrimsonBorder.copy(alpha = 0.45f)
+                        isMoveInPending -> OpsAmberDeep
                         isTenantIssued -> OpsCyanDeep
                         else -> OpsEmeraldDeep
                     },
                     contentColor = when {
                         isAlert -> OpsCrimsonText
+                        isMoveInPending -> OpsAmber
                         isTenantIssued -> OpsCyan
                         else -> OpsEmerald
                     }
@@ -424,10 +606,28 @@ private fun KeyRegisterRowCard(
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "Out: ${entry.dateOut} ${entry.timeOut}  |  To: ${entry.issuedTo}  |  ID: ${entry.qidOrNote.ifBlank { "-" }}",
+                text = "Out: ${entry.dateOut} ${entry.timeOut}  |  Issued By: ${entry.issuedBy.ifBlank { "Mr. Rodel Cabrales" }}",
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = OpsTabularFontFamily),
+                color = when {
+                    isAlert -> OpsCrimsonText.copy(alpha = 0.9f)
+                    isMoveInPending -> OpsAmber
+                    else -> OpsSteel
+                }
+            )
+            Text(
+                text = "To: ${entry.issuedTo}  |  ID/Note: ${entry.qidOrNote.ifBlank { "-" }}",
                 style = MaterialTheme.typography.bodySmall.copy(fontFamily = OpsTabularFontFamily),
                 color = if (isAlert) OpsCrimsonText.copy(alpha = 0.9f) else OpsSteel
             )
+
+            if (isMoveInPending) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Move-In Keys Given to Client — T-code follow-up required from Mr. Shajith (not counted as key-out alert).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OpsAmber
+                )
+            }
 
             if (entry.dateIn.isNotBlank() || entry.timeIn.isNotBlank() || entry.returnedBy.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
@@ -549,6 +749,7 @@ private fun KeyEditBottomSheet(
     var flat by remember { mutableStateOf(initial.flatUnitLocation) }
     var keyType by remember { mutableStateOf(initial.keyCardType) }
     var purpose by remember { mutableStateOf(initial.purpose) }
+    var issuedBy by remember { mutableStateOf(initial.issuedBy.ifBlank { "Mr. Rodel Cabrales" }) }
     var issuedTo by remember { mutableStateOf(initial.issuedTo) }
     var qid by remember { mutableStateOf(initial.qidOrNote) }
     var dateOut by remember { mutableStateOf(initial.dateOut) }
@@ -584,10 +785,12 @@ private fun KeyEditBottomSheet(
                 listOf(
                     KeyStatus.ISSUED,
                     KeyStatus.NOT_YET_RETURNED,
+                    KeyStatus.MOVE_IN_PENDING_TCODE,
                     KeyStatus.ISSUED_TO_TENANT,
                     KeyStatus.RETURNED
                 ).forEach { st ->
-                    val isAlertSt = KeyStatus.isUnreturnedOrActive(st)
+                    val isMoveInSt = st == KeyStatus.MOVE_IN_PENDING_TCODE
+                    val isAlertSt = !isMoveInSt && KeyStatus.isUnreturnedOrActive(st)
                     val isTenantSt = st == KeyStatus.ISSUED_TO_TENANT
                     FilterChip(
                         selected = status == st,
@@ -597,11 +800,13 @@ private fun KeyEditBottomSheet(
                             containerColor = OpsConsole,
                             labelColor = OpsSteel,
                             selectedContainerColor = when {
+                                isMoveInSt -> OpsAmberDeep
                                 isAlertSt -> OpsCrimsonSurface
                                 isTenantSt -> OpsCyanDeep
                                 else -> OpsEmeraldDeep
                             },
                             selectedLabelColor = when {
+                                isMoveInSt -> OpsAmber
                                 isAlertSt -> OpsCrimsonText
                                 isTenantSt -> OpsCyan
                                 else -> OpsEmerald
@@ -611,9 +816,15 @@ private fun KeyEditBottomSheet(
                 }
             }
 
-            if (KeyStatus.isUnreturnedOrActive(status)) {
+            if (status == KeyStatus.MOVE_IN_PENDING_TCODE) {
                 Text(
-                    text = "Next-day verification reminder will be scheduled automatically when saved as unreturned/issued.",
+                    text = "Move-In keys given to client use amber styling with T-code follow-up from Mr. Shajith (not counted as a red unreturned alert).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = OpsAmber
+                )
+            } else if (KeyStatus.isUnreturnedOrActive(status) && !KeyStatus.isMoveInPurpose(purpose)) {
+                Text(
+                    text = "Next-day verification reminder & red highlight will be active when saved as unreturned.",
                     style = MaterialTheme.typography.bodySmall,
                     color = OpsCrimsonText
                 )
@@ -622,6 +833,13 @@ private fun KeyEditBottomSheet(
             OutlinedTextField(value = flat, onValueChange = { flat = it }, label = { Text("Flat / Unit / Location") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = keyType, onValueChange = { keyType = it }, label = { Text("Key / Card Type") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(value = purpose, onValueChange = { purpose = it }, label = { Text("Purpose") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = issuedBy,
+                onValueChange = { issuedBy = it },
+                label = { Text("Issued By (Physical / Desk • XLSX exports Mr. Rodel Cabrales)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = issuedTo, onValueChange = { issuedTo = it }, label = { Text("Issued To (Q-Out)") }, singleLine = true, modifier = Modifier.weight(1f))
                 OutlinedTextField(value = qid, onValueChange = { qid = it }, label = { Text("QID / ID or Note") }, singleLine = true, modifier = Modifier.weight(1f))
@@ -651,6 +869,7 @@ private fun KeyEditBottomSheet(
                                 flatUnitLocation = flat.trim(),
                                 keyCardType = keyType.trim(),
                                 purpose = purpose.trim(),
+                                issuedBy = issuedBy.trim().ifBlank { "Mr. Rodel Cabrales" },
                                 issuedTo = issuedTo.trim(),
                                 qidOrNote = qid.trim(),
                                 dateOut = dateOut.trim(),

@@ -42,7 +42,7 @@ object KeyRegisterBacklogSeed {
                 val unit = parts[3].trim()
                 val keyType = parts[4].trim()
                 val purpose = parts[5].trim()
-                val issuedBy = parts[6].trim()
+                val issuedByRaw = parts[6].trim().let { if (it == "-") "" else it }
                 val issuedToRaw = parts[7].trim()
                 val dateIn = parts[8].trim().let { if (it == "-") "" else it }
                 val timeIn = parts[9].trim().let { if (it == "-") "" else it }
@@ -50,20 +50,23 @@ object KeyRegisterBacklogSeed {
 
                 val isPendingTCode = issuedToRaw.contains("pending", ignoreCase = true) ||
                     comments.contains("pending", ignoreCase = true)
-                val isNotYetReturned = si in RED_NOT_YET_RETURNED_SIS ||
-                    comments.contains("not yet returned", ignoreCase = true)
-                val isActiveIssued = si in RED_ACTIVE_ISSUED_SIS || isPendingTCode
+                val isMoveInOrTransfer = purpose.contains("move-in", ignoreCase = true) ||
+                    purpose.contains("move in", ignoreCase = true) ||
+                    purpose.equals("transfer", ignoreCase = true)
+                val isNotYetReturned = !isMoveInOrTransfer && (
+                    si in RED_NOT_YET_RETURNED_SIS ||
+                        comments.contains("not yet returned", ignoreCase = true)
+                    )
+                val isActiveIssued = !isMoveInOrTransfer && isPendingTCode
                 val hasReturnTimestamp = dateIn.isNotBlank() || timeIn.isNotBlank()
                 val isReturnedComment = comments.contains("returned", ignoreCase = true) ||
                     comments.contains("handed over to pm", ignoreCase = true) ||
                     comments.contains("cylinder fixed", ignoreCase = true)
-                val isMoveInOrTransfer = purpose.contains("move-in", ignoreCase = true) ||
-                    purpose.contains("move in", ignoreCase = true) ||
-                    purpose.equals("transfer", ignoreCase = true)
                 val isAlreadyWithWaseef = comments.contains("with waseef care team", ignoreCase = true)
 
                 val status = when {
                     isNotYetReturned -> KeyStatus.NOT_YET_RETURNED
+                    isMoveInOrTransfer && isPendingTCode -> KeyStatus.MOVE_IN_PENDING_TCODE
                     isActiveIssued -> KeyStatus.ISSUED
                     hasReturnTimestamp || isReturnedComment -> KeyStatus.RETURNED
                     isMoveInOrTransfer ||
@@ -76,24 +79,27 @@ object KeyRegisterBacklogSeed {
                 val issuedToDisplay: String
                 val qidOrNote: String
                 when {
-                    issuedToRaw.startsWith("T-", ignoreCase = true) ||
-                        issuedToRaw.contains("pending", ignoreCase = true) -> {
-                        qidOrNote = if (issuedBy != "-" && issuedBy.isNotBlank()) {
-                            "$issuedToRaw (By: $issuedBy)"
+                    issuedToRaw.startsWith("T-", ignoreCase = true) -> {
+                        qidOrNote = issuedToRaw
+                        issuedToDisplay = if (issuedByRaw.isNotBlank()) issuedByRaw else issuedToRaw
+                    }
+                    issuedToRaw.contains("pending", ignoreCase = true) -> {
+                        qidOrNote = if (issuedByRaw.isNotBlank()) {
+                            "T-code follow-up required from $issuedByRaw"
                         } else {
                             issuedToRaw
                         }
-                        issuedToDisplay = if (issuedBy != "-" && issuedBy.isNotBlank()) issuedBy else issuedToRaw
+                        issuedToDisplay = issuedToRaw
                     }
-                    issuedBy.startsWith("T-", ignoreCase = true) -> {
-                        qidOrNote = issuedBy
+                    issuedByRaw.startsWith("T-", ignoreCase = true) -> {
+                        qidOrNote = issuedByRaw
                         issuedToDisplay = issuedToRaw
                     }
                     else -> {
                         val noteParts = mutableListOf<String>()
                         if (!woMatch.isNullOrBlank()) noteParts.add("WO #$woMatch")
-                        if (issuedBy != "-" && issuedBy.isNotBlank() && issuedBy != issuedToRaw) {
-                            noteParts.add("By: $issuedBy")
+                        if (issuedByRaw.isNotBlank() && issuedByRaw != issuedToRaw) {
+                            noteParts.add("Physical Issuer: $issuedByRaw")
                         }
                         qidOrNote = noteParts.joinToString(" • ")
                         issuedToDisplay = issuedToRaw
@@ -116,7 +122,8 @@ object KeyRegisterBacklogSeed {
                         timeIn = timeIn,
                         returnedBy = returnedBy,
                         remarks = comments,
-                        status = status
+                        status = status,
+                        issuedBy = issuedByRaw
                     )
                 )
             }
@@ -573,10 +580,16 @@ object KeyRegisterBacklogSeed {
 1|-|-|M-C15-21|Key|Move out|-|T-0035439 / Mr. Rodel Cabrales|10/31/2026|2:00PM|Unnumbered row after SI 1567 • 1 Key returned
 1283|7/7/2026|9:05AM|M-B09-12|Key|Key duplication- Ref work order no. 3797715|Mr. Rodel Cabrales|Mr. Emmanuel Ssali|-|-|1 Key not yet returned
 1634|11/26/2026|09:24AM|M-A04-16|1 Key|Refurbishment Cleaning|Mr. Israel Agbofa|Mr. Mansu Khan|-|-|1 Key not yet returned
-1638|11/26/2026|08:38AM|M-E25-34|2 Keys|Move in|Mr. Shajith|Pending T-code|-|-|2 Keys issued
-1639|11/26/2026|10:08AM|M-C13-47|3 Keys|Move in|Mr. Shajith|Pending T-code|-|-|3 Keys issued
+1635|11/26/2026|11:28AM|Store Near Gate Exit|4 Keys|Opening|Mr. Charles|Mr. Israel Agbofa|11/26/2026|12:11PM|4 Keys returned
+1636|11/26/2026|12:26PM|M-C13-16|2 Keys|Viewing|Mr. Charles|Mr. Israel Agbofa|11/26/2026|12:42PM|2 Keys returned
+1637|11/26/2026|12:26PM|M-C15-21|1 Key|Viewing|Mr. Charles|Mr. Israel Agbofa|11/26/2026|12:42PM|1 Key returned
+1638|11/26/2026|08:38AM|M-E25-34|2 Keys|Move in|Mr. Shajith|Pending T-code|-|-|Move-In Keys Given to Client • Pending T-code from Mr. Shajith
+1639|11/26/2026|10:08AM|M-C13-47|3 Keys|Move in|Mr. Shajith|Pending T-code|-|-|Move-In Keys Given to Client • Pending T-code from Mr. Shajith
+1640|11/26/2026|12:40PM|M-A04-16|1 Key|PM Inspection|Mr. Charles|PM Shajith|11/26/2026|13:05PM|1 Key returned
+1641|11/26/2026|12:40PM|M-D18-41|1 Key|PM Inspection|Mr. Charles|PM Shajith|11/26/2026|13:05PM|1 Key returned
+1642|11/26/2026|12:46PM|M-F30-18|1 Key|PM Inspection|Mr. Charles|PM Shajith|11/26/2026|13:05PM|1 Key returned
 1643|11/26/2026|13:36PM|M-F30-18|1 Key|Refurbishment|Mr. Aqib Rehman|Mr. Noor Alam|-|-|1 Key not yet returned
-1644|11/26/2026|14:34PM|M-D20-13|1 Key|Move in|Mr. Shajith|Pending T-code (Mr. Shajith)|-|-|1 Key issued
-1645|11/26/2026|14:35PM|M-A01-35|2 Keys|Move in|Mr. Shajith|Pending T-code (Mr. Shajith)|-|-|2 Keys issued
+1644|11/26/2026|14:34PM|M-D20-13|1 Key|Move in|Mr. Shajith|Pending T-code (Mr. Shajith)|-|-|Move-In Keys Given to Client • Pending T-code from Mr. Shajith
+1645|11/26/2026|14:35PM|M-A01-35|2 Keys|Move in|Mr. Shajith|Pending T-code (Mr. Shajith)|-|-|Move-In Keys Given to Client • Pending T-code from Mr. Shajith
 """
 }

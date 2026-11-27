@@ -1,12 +1,14 @@
 package com.example.data
 
 import com.example.data.cloud.FirestoreSyncRepository
+import com.example.data.db.InspectionReportEntity
 import com.example.data.db.KeyRegisterEntity
 import com.example.data.db.KeyStatus
 import com.example.data.db.MaintenanceRequestEntity
 import com.example.data.db.MasakenDatabase
 import com.example.data.db.OpsReminderEntity
 import com.example.data.db.ReminderType
+import com.example.data.db.ReportDispatchEntity
 import com.example.data.db.SportsBookingEntity
 import com.example.data.db.VisitorDayEntity
 import com.example.data.sync.TestRecordFilter
@@ -27,6 +29,8 @@ class OperationsRepository(
     val maintenanceFlow: Flow<List<MaintenanceRequestEntity>> = db.maintenanceRequestDao().observeAll()
     val sportsFlow: Flow<List<SportsBookingEntity>> = db.sportsBookingDao().observeAll()
     val remindersFlow: Flow<List<OpsReminderEntity>> = db.opsReminderDao().observeAll()
+    val inspectionsFlow: Flow<List<InspectionReportEntity>> = db.inspectionReportDao().observeAll()
+    val dispatchesFlow: Flow<List<ReportDispatchEntity>> = db.reportDispatchDao().observeAll()
 
     suspend fun ensureSeeded() = withContext(Dispatchers.IO) {
         MasakenDatabase.seedIfEmpty(db)
@@ -233,5 +237,15 @@ class OperationsRepository(
         db.opsReminderDao().upsert(updated)
         if (done) scheduler.cancelReminder(updated.id) else scheduler.scheduleReminder(updated)
         cloudSync?.syncReminder(updated)
+    }
+
+    suspend fun saveInspectionReport(report: InspectionReportEntity) {
+        db.inspectionReportDao().upsert(report)
+        cloudSync?.syncInspectionReport(report)
+    }
+
+    suspend fun saveReportDispatch(dispatch: ReportDispatchEntity) {
+        db.reportDispatchDao().upsert(dispatch)
+        cloudSync?.syncReportDispatch(dispatch)
     }
 }

@@ -35,17 +35,45 @@ class OpsReminderReceiver : BroadcastReceiver() {
                             val reminder = dao.getById(reminderId)
                             if (reminder != null && !reminder.isDone) {
                                 OpsNotificationHelper.showReminderNotification(context, reminder)
-                                if (reminder.type == ReminderType.DAILY_0740) {
-                                    // Schedule next day's 07:40 AM Qatar time check
-                                    val nextDay = Calendar.getInstance(TimeZone.getTimeZone("Asia/Qatar")).apply {
+                                val qatarTz = TimeZone.getTimeZone("Asia/Qatar")
+                                val nextTriggerMillis: Long? = when (reminder.type) {
+                                    ReminderType.DAILY_0740 -> Calendar.getInstance(qatarTz).apply {
                                         add(Calendar.DAY_OF_YEAR, 1)
                                         set(Calendar.HOUR_OF_DAY, 7)
                                         set(Calendar.MINUTE, 40)
                                         set(Calendar.SECOND, 0)
                                         set(Calendar.MILLISECOND, 0)
                                     }.timeInMillis
+                                    ReminderType.DAILY_1530 -> Calendar.getInstance(qatarTz).apply {
+                                        add(Calendar.DAY_OF_YEAR, 1)
+                                        set(Calendar.HOUR_OF_DAY, 15)
+                                        set(Calendar.MINUTE, 30)
+                                        set(Calendar.SECOND, 0)
+                                        set(Calendar.MILLISECOND, 0)
+                                    }.timeInMillis
+                                    ReminderType.WEEKLY_REPORT_FRI -> Calendar.getInstance(qatarTz).apply {
+                                        add(Calendar.DAY_OF_YEAR, 1)
+                                        while (get(Calendar.DAY_OF_WEEK) != Calendar.SATURDAY) {
+                                            add(Calendar.DAY_OF_YEAR, 1)
+                                        }
+                                        set(Calendar.HOUR_OF_DAY, 16)
+                                        set(Calendar.MINUTE, 0)
+                                        set(Calendar.SECOND, 0)
+                                        set(Calendar.MILLISECOND, 0)
+                                    }.timeInMillis
+                                    ReminderType.MONTHLY_REPORT_EOM -> Calendar.getInstance(qatarTz).apply {
+                                        add(Calendar.MONTH, 1)
+                                        set(Calendar.DAY_OF_MONTH, 1)
+                                        set(Calendar.HOUR_OF_DAY, 9)
+                                        set(Calendar.MINUTE, 0)
+                                        set(Calendar.SECOND, 0)
+                                        set(Calendar.MILLISECOND, 0)
+                                    }.timeInMillis
+                                    else -> null
+                                }
+                                if (nextTriggerMillis != null) {
                                     val updated = reminder.copy(
-                                        scheduledAtMillis = nextDay,
+                                        scheduledAtMillis = nextTriggerMillis,
                                         snoozedUntilMillis = null
                                     )
                                     dao.upsert(updated)

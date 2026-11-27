@@ -163,3 +163,33 @@ interface OpsReminderDao {
     @Query("DELETE FROM ops_reminders WHERE id = :id")
     suspend fun deleteById(id: String)
 }
+
+@Dao
+interface InspectionReportDao {
+    @Query("SELECT * FROM inspection_reports ORDER BY createdAtMillis DESC")
+    fun observeAll(): Flow<List<InspectionReportEntity>>
+
+    @Query("SELECT * FROM inspection_reports ORDER BY createdAtMillis DESC")
+    suspend fun getAllOnce(): List<InspectionReportEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(report: InspectionReportEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(reports: List<InspectionReportEntity>)
+}
+
+@Dao
+interface ReportDispatchDao {
+    @Query("SELECT * FROM report_dispatches ORDER BY sentAtMillis DESC")
+    fun observeAll(): Flow<List<ReportDispatchEntity>>
+
+    @Query("SELECT * FROM report_dispatches ORDER BY sentAtMillis DESC")
+    suspend fun getAllOnce(): List<ReportDispatchEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(dispatch: ReportDispatchEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(dispatches: List<ReportDispatchEntity>)
+}

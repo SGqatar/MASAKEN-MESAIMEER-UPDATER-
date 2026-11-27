@@ -31,7 +31,7 @@ object OpsNotificationHelper {
                 "Daily & Scheduled Ops Routines",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Daily 07:40 AM sports & log check and Saturday 09:00 AM T-code audit."
+                description = "Daily 07:40 AM sports check, 3:30 PM daily briefing, Saturday T-code audit, and Weekly/Monthly report reminders."
             }
             val keyAlertsChannel = NotificationChannel(
                 CHANNEL_KEY_ALERTS,
@@ -63,6 +63,7 @@ object OpsNotificationHelper {
         val navTarget = when (reminder.type) {
             ReminderType.KEY_NEXT_DAY -> "keys"
             ReminderType.DAILY_0740 -> "sports"
+            ReminderType.WEEKLY_REPORT_FRI, ReminderType.MONTHLY_REPORT_EOM -> "reports"
             else -> "dashboard"
         }
 

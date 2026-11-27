@@ -6,6 +6,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -110,9 +111,11 @@ fun SportsBookingScreen(
     allBookings: List<SportsBookingEntity>,
     filteredBookings: List<SportsBookingEntity>,
     selectedFilter: SportFilter,
+    selectedDateFilter: String,
     searchQuery: String,
     aiVisionState: AiVisionUiState,
     onSelectFilter: (SportFilter) -> Unit,
+    onSelectDateFilter: (String) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onParseTextOffline: (String, String?) -> ParsedBookingDraft,
     onSavePickedPhoto: suspend (android.net.Uri) -> String?,
@@ -245,44 +248,58 @@ fun SportsBookingScreen(
                             }
                         }
 
-                        if (!hasNov26) {
-                            Spacer(Modifier.height(10.dp))
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(OpsAmberDeep)
-                                    .clickable {
-                                        onResetAiVision()
-                                        showQuickParserSheet = true
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                    LivePulseBeacon(color = OpsAmber, size = 7.dp)
-                                    Spacer(Modifier.width(6.dp))
-                                    Icon(Icons.Filled.Schedule, contentDescription = null, tint = OpsAmber, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        text = "Nov 26, 2026 pending next-day entry (07:40 AM check)",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = OpsWhite
-                                    )
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (hasNov26) OpsEmeraldDeep else OpsAmberDeep)
+                                .clickable {
+                                    onResetAiVision()
+                                    showQuickParserSheet = true
                                 }
-                                Text("LOG", style = MaterialTheme.typography.labelMedium, color = OpsAmber)
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                LivePulseBeacon(color = if (hasNov26) OpsEmerald else OpsAmber, size = 7.dp)
+                                Spacer(Modifier.width(6.dp))
+                                Icon(
+                                    Icons.Filled.Schedule,
+                                    contentDescription = null,
+                                    tint = if (hasNov26) OpsEmerald else OpsAmber,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = if (hasNov26) {
+                                        "Nov 26 logged (SN 140–144) • Next-day ~07:40 AM routine logging for prior day's court bookings"
+                                    } else {
+                                        "Nov 26 pending next-day entry (~07:40 AM routine check)"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OpsWhite
+                                )
                             }
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = if (hasNov26) "+ ADD" else "LOG",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (hasNov26) OpsEmerald else OpsAmber
+                            )
                         }
                     }
                 }
             }
 
-            // Single-Page Sport Filter Chip Bar ("All", "Football", "Padel") + Search
+            // Single-Page Sport Filter Chip Bar ("All", "Football", "Padel") + Date/Unit Quick Filters + Search
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         SportFilter.entries.forEach { filter ->
@@ -302,6 +319,40 @@ fun SportsBookingScreen(
                                     selectedLabelColor = OpsAmber
                                 ),
                                 modifier = Modifier.testTag("sport_chip_${filter.name.lowercase()}")
+                            )
+                        }
+                        FilterChip(
+                            selected = selectedDateFilter == "NOV26",
+                            onClick = { onSelectDateFilter(if (selectedDateFilter == "NOV26") "ALL" else "NOV26") },
+                            label = { Text("26-Nov-2026") },
+                            colors = FilterChipDefaults.filterChipColors(
+                                containerColor = OpsConsole,
+                                labelColor = OpsSteel,
+                                selectedContainerColor = OpsCyanDeep,
+                                selectedLabelColor = OpsCyan
+                            ),
+                            modifier = Modifier.testTag("sport_date_nov26")
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("MM-A01-22", "MM-E25-22", "MM-A02-17", "MM-D17-33", "MM-F27-37").forEach { unitCode ->
+                            val selectedUnit = searchQuery.equals(unitCode, ignoreCase = true)
+                            FilterChip(
+                                selected = selectedUnit,
+                                onClick = { onSearchQueryChange(if (selectedUnit) "" else unitCode) },
+                                label = { Text(unitCode) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    containerColor = OpsConsole,
+                                    labelColor = OpsSteel,
+                                    selectedContainerColor = OpsCyanDeep,
+                                    selectedLabelColor = OpsCyan
+                                ),
+                                modifier = Modifier.testTag("sport_unit_chip_$unitCode")
                             )
                         }
                     }

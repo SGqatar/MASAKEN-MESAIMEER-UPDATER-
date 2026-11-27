@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.ByteArrayOutputStream
 import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -82,9 +83,9 @@ class WorkbookSyncManager(
             val csv = buildString {
                 when (targetWorkbook) {
                     "keys" -> {
-                        appendLine("SI,Date Out,Time Out,Flat / Unit / Location,Key / Card Type,Purpose,Issued To (Q-Out),QID / ID or Note,Date In,Time In,Returned By (Q-In),Remarks,Status")
+                        appendLine("SI,Date Out,Time Out,Flat / Unit / Location,Key / Card Type,Purpose,Issued By,Issued To (Q-Out),QID / ID or Note,Date In,Time In,Returned By (Q-In),Remarks,Status")
                         db.keyRegisterDao().getAllOnce().sortedBy { it.si }.forEach { k ->
-                            appendLine(csvRow(k.si, k.dateOut, k.timeOut, k.flatUnitLocation, k.keyCardType, k.purpose, k.issuedTo, k.qidOrNote, k.dateIn, k.timeIn, k.returnedBy, k.remarks, k.status))
+                            appendLine(csvRow(k.si, k.dateOut, k.timeOut, k.flatUnitLocation, k.keyCardType, k.purpose, k.issuedBy.ifBlank { XlsxEngine.EXPORT_ISSUED_BY_DEFAULT }, k.issuedTo, k.qidOrNote, k.dateIn, k.timeIn, k.returnedBy, k.remarks, k.status))
                         }
                     }
                     "visitors" -> {
@@ -117,35 +118,35 @@ class WorkbookSyncManager(
         }
     }
 
-    suspend fun exportJsonSnapshotToUri(uri: Uri): Result<SyncResult> = withContext(Dispatchers.IO) {
-        try {
-            val keys = db.keyRegisterDao().getAllOnce()
-            val visitors = db.visitorDayDao().getAllOnce()
-            val maintenance = db.maintenanceRequestDao().getAllOnce()
-            val sports = db.sportsBookingDao().getAllAscendingOnce()
+    suspend fun buildFullSnapshotJsonBytes(): ByteArray = withContext(Dispatchers.IO) {
+        val keys = db.keyRegisterDao().getAllOnce()
+        val visitors = db.visitorDayDao().getAllOnce()
+        val maintenance = db.maintenanceRequestDao().getAllOnce()
+        val sports = db.sportsBookingDao().getAllAscendingOnce()
 
-            val root = JSONObject().apply {
-                put("property", "Masaken Mesaimeer (Doha, Qatar)")
-                put("exportedAtMillis", System.currentTimeMillis())
-                put("keyRegister", JSONArray().apply {
-                    keys.forEach { k ->
-                        put(JSONObject().apply {
-                            put("si", k.si)
-                            put("dateOut", k.dateOut)
-                            put("timeOut", k.timeOut)
-                            put("flatUnitLocation", k.flatUnitLocation)
-                            put("keyCardType", k.keyCardType)
-                            put("purpose", k.purpose)
-                            put("issuedTo", k.issuedTo)
-                            put("qidOrNote", k.qidOrNote)
-                            put("dateIn", k.dateIn)
-                            put("timeIn", k.timeIn)
-                            put("returnedBy", k.returnedBy)
-                            put("remarks", k.remarks)
-                            put("status", k.status)
-                        })
-                    }
-                })
+        val root = JSONObject().apply {
+            put("property", "Masaken Mesaimeer (Doha, Qatar)")
+            put("exportedAtMillis", System.currentTimeMillis())
+            put("keyRegister", JSONArray().apply {
+                keys.forEach { k ->
+                    put(JSONObject().apply {
+                        put("si", k.si)
+                        put("dateOut", k.dateOut)
+                        put("timeOut", k.timeOut)
+                        put("flatUnitLocation", k.flatUnitLocation)
+                        put("keyCardType", k.keyCardType)
+                        put("purpose", k.purpose)
+                        put("issuedBy", k.issuedBy)
+                        put("issuedTo", k.issuedTo)
+                        put("qidOrNote", k.qidOrNote)
+                        put("dateIn", k.dateIn)
+                        put("timeIn", k.timeIn)
+                        put("returnedBy", k.returnedBy)
+                        put("remarks", k.remarks)
+                        put("status", k.status)
+                    })
+                }
+            })
                 put("pmVisitors", JSONArray().apply {
                     visitors.forEach { v ->
                         put(JSONObject().apply {
@@ -190,9 +191,19 @@ class WorkbookSyncManager(
                     }
                 })
             }
+        root.toString(2).toByteArray(Charsets.UTF_8)
+    }
+
+    suspend fun exportJsonSnapshotToUri(uri: Uri): Result<SyncResult> = withContext(Dispatchers.IO) {
+        try {
+            val bytes = buildFullSnapshotJsonBytes()
+            val keys = db.keyRegisterDao().getAllOnce()
+            val visitors = db.visitorDayDao().getAllOnce()
+            val maintenance = db.maintenanceRequestDao().getAllOnce()
+            val sports = db.sportsBookingDao().getAllAscendingOnce()
 
             context.contentResolver.openOutputStream(uri)?.use { out ->
-                out.write(root.toString(2).toByteArray(Charsets.UTF_8))
+                out.write(bytes)
             } ?: return@withContext Result.failure(IllegalStateException("Could not open JSON output."))
 
             Result.success(
@@ -207,6 +218,42 @@ class WorkbookSyncManager(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun generateKeyRegisterReportXlsxBytes(
+        keysFilter: (KeyRegisterEntity) -> Boolean = { true },
+        sheetTitle: String = "Key Register"
+    ): ByteArray = withContext(Dispatchers.IO) {
+        val keys = db.keyRegisterDao().getAllOnce().filter(keysFilter).sortedBy { it.si }
+        val baos = ByteArrayOutputStream()
+        XlsxEngine.writeKeyRegisterXlsx(baos, keys, sheetTitle)
+        baos.toByteArray()
+    }
+
+    suspend fun generateVisitorsReportXlsxBytes(
+        sheetTitle: String = "PM VISITORS 2026"
+    ): ByteArray = withContext(Dispatchers.IO) {
+        val visitors = db.visitorDayDao().getAllOnce().sortedBy { it.dateIso }
+        val baos = ByteArrayOutputStream()
+        XlsxEngine.writeVisitorsXlsx(baos, visitors, sheetTitle)
+        baos.toByteArray()
+    }
+
+    suspend fun generateSportsReportXlsxBytes(
+        sheetTitle: String = "November 2026"
+    ): ByteArray = withContext(Dispatchers.IO) {
+        val sports = db.sportsBookingDao().getAllAscendingOnce()
+        val baos = ByteArrayOutputStream()
+        XlsxEngine.writeSportsXlsx(baos, sports, sheetTitle)
+        baos.toByteArray()
+    }
+
+    suspend fun generateVisitorsAndMaintenanceReportXlsxBytes(): ByteArray = withContext(Dispatchers.IO) {
+        val visitors = db.visitorDayDao().getAllOnce().sortedBy { it.dateIso }
+        val maintenance = db.maintenanceRequestDao().getAllOnce().sortedBy { it.sn }
+        val baos = ByteArrayOutputStream()
+        XlsxEngine.writeVisitorsAndMaintenanceXlsx(baos, visitors, maintenance)
+        baos.toByteArray()
     }
 
     suspend fun previewImportFromUri(
@@ -326,7 +373,8 @@ class WorkbookSyncManager(
                     timeIn = o.optString("timeIn"),
                     returnedBy = o.optString("returnedBy"),
                     remarks = o.optString("remarks"),
-                    status = o.optString("status", "Key issued")
+                    status = o.optString("status", "Key issued"),
+                    issuedBy = o.optString("issuedBy")
                 )
                 if (TestRecordFilter.isDeletedTestKeyRecord(k)) skipped++ else keys.add(k)
             }
@@ -416,8 +464,10 @@ class WorkbookSyncManager(
 
         when (detected) {
             IngestTarget.KEYS -> {
+                val hasIssuedBy = headers.any { it.contains("issued by") }
                 data.forEach { r ->
                     val si = r.getOrNull(0)?.toIntOrNull() ?: return@forEach
+                    val shift = if (hasIssuedBy) 1 else 0
                     val k = KeyRegisterEntity(
                         si = si,
                         dateOut = r.getOrElse(1) { "" },
@@ -425,13 +475,14 @@ class WorkbookSyncManager(
                         flatUnitLocation = r.getOrElse(3) { "" },
                         keyCardType = r.getOrElse(4) { "" },
                         purpose = r.getOrElse(5) { "" },
-                        issuedTo = r.getOrElse(6) { "" },
-                        qidOrNote = r.getOrElse(7) { "" },
-                        dateIn = r.getOrElse(8) { "" },
-                        timeIn = r.getOrElse(9) { "" },
-                        returnedBy = r.getOrElse(10) { "" },
-                        remarks = r.getOrElse(11) { "" },
-                        status = r.getOrElse(12) { "Key issued" }
+                        issuedBy = if (hasIssuedBy) r.getOrElse(6) { "" } else "",
+                        issuedTo = r.getOrElse(6 + shift) { "" },
+                        qidOrNote = r.getOrElse(7 + shift) { "" },
+                        dateIn = r.getOrElse(8 + shift) { "" },
+                        timeIn = r.getOrElse(9 + shift) { "" },
+                        returnedBy = r.getOrElse(10 + shift) { "" },
+                        remarks = r.getOrElse(11 + shift) { "" },
+                        status = r.getOrElse(12 + shift) { "Key issued" }
                     )
                     if (TestRecordFilter.isDeletedTestKeyRecord(k)) skipped++ else keys.add(k)
                 }

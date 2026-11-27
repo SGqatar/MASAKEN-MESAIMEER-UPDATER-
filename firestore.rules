@@ -67,7 +67,7 @@ service cloud.firestore {
       ]) &&
       data.keys().hasOnly([
         'si', 'dateOut', 'timeOut', 'flatUnitLocation', 'keyCardType',
-        'purpose', 'issuedTo', 'qidOrNote', 'dateIn', 'timeIn',
+        'purpose', 'issuedTo', 'issuedBy', 'qidOrNote', 'dateIn', 'timeIn',
         'returnedBy', 'remarks', 'status', 'updatedAtMillis', 'createdAt', 'updatedAt'
       ]) &&
       data.si is int && data.si >= 1 && string(data.si) == keyId &&
@@ -77,12 +77,13 @@ service cloud.firestore {
       isStringWithin(data.keyCardType, 0, 120) &&
       isStringWithin(data.purpose, 0, 500) &&
       isStringWithin(data.issuedTo, 0, 160) &&
+      isOptionalString(data, 'issuedBy', 160) &&
       isStringWithin(data.qidOrNote, 0, 200) &&
       isStringWithin(data.dateIn, 0, 40) &&
       isStringWithin(data.timeIn, 0, 40) &&
       isStringWithin(data.returnedBy, 0, 160) &&
       isStringWithin(data.remarks, 0, 500) &&
-      data.status in ['Key returned', 'Key issued', 'Key issued to tenant', 'Key not yet returned'] &&
+      data.status in ['Key returned', 'Key issued', 'Key issued to tenant', 'Move-In Keys Given to Client', 'Key not yet returned'] &&
       data.updatedAtMillis is int && data.updatedAtMillis >= 0 &&
       isTimestampValid(data.createdAt) &&
       isTimestampValid(data.updatedAt);
@@ -165,7 +166,7 @@ service cloud.firestore {
       ]) &&
       data.id == reminderId &&
       isStringWithin(data.id, 1, 100) &&
-      data.type in ['DAILY_0740', 'SAT_AUDIT_0900', 'KEY_NEXT_DAY'] &&
+      data.type in ['DAILY_0740', 'DAILY_1530', 'SAT_AUDIT_0900', 'WEEKLY_REPORT_FRI', 'MONTHLY_REPORT_EOM', 'KEY_NEXT_DAY'] &&
       isStringWithin(data.title, 1, 200) &&
       isStringWithin(data.message, 0, 500) &&
       (!( 'relatedKeySi' in data ) || (data.relatedKeySi is int && data.relatedKeySi >= 1)) &&
@@ -173,6 +174,56 @@ service cloud.firestore {
       (!( 'snoozedUntilMillis' in data ) || (data.snoozedUntilMillis is int && data.snoozedUntilMillis >= 0)) &&
       data.done is bool &&
       data.checklistMask is int && data.checklistMask >= 0 &&
+      isTimestampValid(data.createdAt) &&
+      isTimestampValid(data.updatedAt);
+    }
+
+    function isValidInspectionReport(data, reportId) {
+      return data.keys().hasAll([
+        'id', 'buildingName', 'inspectionDate', 'inspectorName', 'itemCount',
+        'summaryNote', 'localFilePath', 'driveFileId', 'createdAtMillis', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'buildingName', 'inspectionDate', 'inspectorName', 'itemCount',
+        'summaryNote', 'localFilePath', 'driveFileId', 'createdAtMillis', 'createdAt', 'updatedAt'
+      ]) &&
+      data.id == reportId &&
+      isStringWithin(data.id, 1, 100) &&
+      isStringWithin(data.buildingName, 1, 160) &&
+      isStringWithin(data.inspectionDate, 1, 40) &&
+      isStringWithin(data.inspectorName, 1, 160) &&
+      data.itemCount is int && data.itemCount >= 0 &&
+      isStringWithin(data.summaryNote, 0, 1000) &&
+      isStringWithin(data.localFilePath, 0, 500) &&
+      isStringWithin(data.driveFileId, 0, 200) &&
+      data.createdAtMillis is int && data.createdAtMillis >= 0 &&
+      isTimestampValid(data.createdAt) &&
+      isTimestampValid(data.updatedAt);
+    }
+
+    function isValidReportDispatch(data, dispatchId) {
+      return data.keys().hasAll([
+        'id', 'reportType', 'subject', 'periodLabel', 'recipientsTo', 'recipientsCc',
+        'attachmentNames', 'localPaths', 'driveStatus', 'dispatchChannel', 'sentAtMillis',
+        'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'reportType', 'subject', 'periodLabel', 'recipientsTo', 'recipientsCc',
+        'attachmentNames', 'localPaths', 'driveStatus', 'dispatchChannel', 'sentAtMillis',
+        'createdAt', 'updatedAt'
+      ]) &&
+      data.id == dispatchId &&
+      isStringWithin(data.id, 1, 100) &&
+      data.reportType in ['INSPECTION', 'WEEKLY', 'MONTHLY'] &&
+      isStringWithin(data.subject, 1, 300) &&
+      isStringWithin(data.periodLabel, 0, 120) &&
+      isStringWithin(data.recipientsTo, 0, 500) &&
+      isStringWithin(data.recipientsCc, 0, 500) &&
+      isStringWithin(data.attachmentNames, 0, 500) &&
+      isStringWithin(data.localPaths, 0, 1000) &&
+      isStringWithin(data.driveStatus, 0, 200) &&
+      data.dispatchChannel in ['GMAIL_API', 'EMAIL_INTENT', 'LOCAL_ARCHIVE'] &&
+      data.sentAtMillis is int && data.sentAtMillis >= 0 &&
       isTimestampValid(data.createdAt) &&
       isTimestampValid(data.updatedAt);
     }
@@ -264,6 +315,34 @@ service cloud.firestore {
           isValidOpsReminder(incoming(), reminderId) &&
           incoming().id == existing().id &&
           incoming().type == existing().type &&
+          incoming().createdAt == existing().createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      match /inspectionReports/{reportId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidId(reportId) &&
+          isValidInspectionReport(incoming(), reportId);
+        allow update: if isOwner(userId) &&
+          isValidId(reportId) &&
+          isValidInspectionReport(incoming(), reportId) &&
+          incoming().id == existing().id &&
+          incoming().createdAt == existing().createdAt;
+        allow delete: if isOwner(userId);
+      }
+
+      match /reportDispatches/{dispatchId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+          isValidId(dispatchId) &&
+          isValidReportDispatch(incoming(), dispatchId);
+        allow update: if isOwner(userId) &&
+          isValidId(dispatchId) &&
+          isValidReportDispatch(incoming(), dispatchId) &&
+          incoming().id == existing().id &&
           incoming().createdAt == existing().createdAt;
         allow delete: if isOwner(userId);
       }

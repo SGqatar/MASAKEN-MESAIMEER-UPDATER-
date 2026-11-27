@@ -533,7 +533,7 @@ fun DailyRoutineChecklistCard(
 ) {
     val steps = listOf(
         "Enter Nov 26 Padel & Football sheets (07:40 AM)",
-        "Verify Key Register unreturned items (SI 1283, 1634, 1638–1645)",
+        "Verify Nov unreturned keys (M-A04-16, M-F30-18) & 4 Move-In T-codes (SI 1638–1645)",
         "Confirm daily PM Visitors & Apartment Viewings",
         "Review open Maintenance Work Orders"
     )

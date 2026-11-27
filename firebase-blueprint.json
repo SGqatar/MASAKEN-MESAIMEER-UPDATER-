@@ -27,6 +27,7 @@
         "keyCardType": { "type": "string" },
         "purpose": { "type": "string" },
         "issuedTo": { "type": "string" },
+        "issuedBy": { "type": "string" },
         "qidOrNote": { "type": "string" },
         "dateIn": { "type": "string" },
         "timeIn": { "type": "string" },
@@ -34,7 +35,7 @@
         "remarks": { "type": "string" },
         "status": {
           "type": "string",
-          "enum": ["Key returned", "Key issued", "Key issued to tenant", "Key not yet returned"]
+          "enum": ["Key returned", "Key issued", "Key issued to tenant", "Move-In Keys Given to Client", "Key not yet returned"]
         },
         "updatedAtMillis": { "type": "integer" },
         "createdAt": { "type": "string", "format": "date-time" },
@@ -117,7 +118,10 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "type": { "type": "string", "enum": ["DAILY_0740", "SAT_AUDIT_0900", "KEY_NEXT_DAY"] },
+        "type": {
+          "type": "string",
+          "enum": ["DAILY_0740", "DAILY_1530", "SAT_AUDIT_0900", "WEEKLY_REPORT_FRI", "MONTHLY_REPORT_EOM", "KEY_NEXT_DAY"]
+        },
         "title": { "type": "string" },
         "message": { "type": "string" },
         "relatedKeySi": { "type": "integer" },
@@ -131,6 +135,53 @@
       "required": [
         "id", "type", "title", "message", "scheduledAtMillis",
         "done", "checklistMask", "createdAt", "updatedAt"
+      ]
+    },
+    "InspectionReportDoc": {
+      "title": "InspectionReportDoc",
+      "description": "Building Inspection XLSX report metadata generated from field photos.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "buildingName": { "type": "string" },
+        "inspectionDate": { "type": "string" },
+        "inspectorName": { "type": "string" },
+        "itemCount": { "type": "integer" },
+        "summaryNote": { "type": "string" },
+        "localFilePath": { "type": "string" },
+        "driveFileId": { "type": "string" },
+        "createdAtMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "buildingName", "inspectionDate", "inspectorName", "itemCount",
+        "summaryNote", "localFilePath", "driveFileId", "createdAtMillis", "createdAt", "updatedAt"
+      ]
+    },
+    "ReportDispatchDoc": {
+      "title": "ReportDispatchDoc",
+      "description": "Audit log of weekly, monthly, and inspection report dispatches.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reportType": { "type": "string", "enum": ["INSPECTION", "WEEKLY", "MONTHLY"] },
+        "subject": { "type": "string" },
+        "periodLabel": { "type": "string" },
+        "recipientsTo": { "type": "string" },
+        "recipientsCc": { "type": "string" },
+        "attachmentNames": { "type": "string" },
+        "localPaths": { "type": "string" },
+        "driveStatus": { "type": "string" },
+        "dispatchChannel": { "type": "string", "enum": ["GMAIL_API", "EMAIL_INTENT", "LOCAL_ARCHIVE"] },
+        "sentAtMillis": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "reportType", "subject", "periodLabel", "recipientsTo", "recipientsCc",
+        "attachmentNames", "localPaths", "driveStatus", "dispatchChannel", "sentAtMillis",
+        "createdAt", "updatedAt"
       ]
     }
   },
@@ -158,6 +209,14 @@
     "/users/{userId}/reminders/{reminderId}": {
       "schema": { "$ref": "#/entities/OpsReminderDoc" },
       "description": "Owner-isolated operational reminders & daily checklists."
+    },
+    "/users/{userId}/inspectionReports/{reportId}": {
+      "schema": { "$ref": "#/entities/InspectionReportDoc" },
+      "description": "Owner-isolated building inspection XLSX report logs."
+    },
+    "/users/{userId}/reportDispatches/{dispatchId}": {
+      "schema": { "$ref": "#/entities/ReportDispatchDoc" },
+      "description": "Owner-isolated weekly/monthly/inspection report dispatch logs."
     }
   }
 }

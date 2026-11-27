@@ -336,13 +336,49 @@ test("VisitorDays, Maintenance, SportsBookings, Reminders: valid payloads & boun
     })
   );
 
-  // OpsReminder (uses `done`, omits null optional fields)
+  // Move-In Keys Given to Client + issuedBy
+  await assertSucceeds(
+    aliceDb.doc(`users/${ALICE_UID}/keys/1638`).set({
+      si: 1638,
+      dateOut: "11/26/2026",
+      timeOut: "08:38AM",
+      flatUnitLocation: "M-E25-34",
+      keyCardType: "2 Keys",
+      purpose: "Move in",
+      issuedBy: "Mr. Shajith",
+      issuedTo: "Pending T-code",
+      qidOrNote: "T-code follow-up required from Mr. Shajith",
+      dateIn: "",
+      timeIn: "",
+      returnedBy: "",
+      remarks: "Move-In Keys Given to Client",
+      status: "Move-In Keys Given to Client",
+      updatedAtMillis: Date.now(),
+      createdAt: created,
+      updatedAt: created,
+    })
+  );
+
+  // OpsReminder (uses `done`, omits null optional fields, includes DAILY_1530 / report types)
   await assertSucceeds(
     aliceDb.doc(`users/${ALICE_UID}/reminders/daily_0740`).set({
       id: "daily_0740",
       type: "DAILY_0740",
       title: "Morning Sports & Key Check",
       message: "Verify previous day bookings",
+      scheduledAtMillis: Date.now(),
+      done: false,
+      checklistMask: 0,
+      createdAt: created,
+      updatedAt: created,
+    })
+  );
+  await assertSucceeds(
+    aliceDb.doc(`users/${ALICE_UID}/reminders/daily_1530`).set({
+      id: "daily_1530",
+      type: "DAILY_1530",
+      title: "03:30 PM Daily Briefing",
+      message: "Daily briefing",
       scheduledAtMillis: Date.now(),
       done: false,
       checklistMask: 0,
@@ -370,6 +406,44 @@ test("VisitorDays, Maintenance, SportsBookings, Reminders: valid payloads & boun
       updatedAt: created,
     })
   );
+
+  // InspectionReport & ReportDispatch owner rules
+  await assertSucceeds(
+    aliceDb.doc(`users/${ALICE_UID}/inspectionReports/insp_1`).set({
+      id: "insp_1",
+      buildingName: "Building A04",
+      inspectionDate: "27/11/2026",
+      inspectorName: "Emmanuel Ssali",
+      itemCount: 3,
+      summaryNote: "Basement & rooftop corridor checked",
+      localFilePath: "/Documents/Masaken Mesaimeer/Inspections/Bldg_A04.xlsx",
+      driveFileId: "drive_123",
+      createdAtMillis: Date.now(),
+      createdAt: created,
+      updatedAt: created,
+    })
+  );
+  await assertSucceeds(
+    aliceDb.doc(`users/${ALICE_UID}/reportDispatches/disp_1`).set({
+      id: "disp_1",
+      reportType: "WEEKLY",
+      subject: "Weekly keys log report; Week 48 ( 20 Nov to 26 Nov)",
+      periodLabel: "20 Nov to 26 Nov 2026",
+      recipientsTo: "pm@example.com",
+      recipientsCc: "ops@example.com",
+      attachmentNames: "WSF-PMD-F-09.xlsx",
+      localPaths: "/Documents/Masaken Mesaimeer/Weekly/WSF-PMD-F-09.xlsx",
+      driveStatus: "Uploaded",
+      dispatchChannel: "GMAIL_API",
+      sentAtMillis: Date.now(),
+      createdAt: created,
+      updatedAt: created,
+    })
+  );
+
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  await assertFails(bobDb.collection(`users/${ALICE_UID}/inspectionReports`).get());
+  await assertFails(bobDb.collection(`users/${ALICE_UID}/reportDispatches`).get());
 });
 
 test("Client queries alignment: owner list & ordered queries succeed", async () => {
@@ -397,5 +471,11 @@ test("Client queries alignment: owner list & ordered queries succeed", async () 
   );
   await assertSucceeds(
     aliceDb.collection(`users/${ALICE_UID}/reminders`).get()
+  );
+  await assertSucceeds(
+    aliceDb.collection(`users/${ALICE_UID}/inspectionReports`).orderBy("createdAtMillis", "desc").get()
+  );
+  await assertSucceeds(
+    aliceDb.collection(`users/${ALICE_UID}/reportDispatches`).orderBy("sentAtMillis", "desc").get()
   );
 });

@@ -44,6 +44,7 @@ class UniversalPhotoIngestService(private val context: Context) {
                         "flatUnitLocation" to Schema.string(description = "Flat or unit code e.g. M-A04-16"),
                         "keyCardType" to Schema.string(description = "Key or access card type"),
                         "purpose" to Schema.string(description = "Purpose of key issuance"),
+                        "issuedBy" to Schema.string(description = "Staff member who issued the key if shown"),
                         "issuedTo" to Schema.string(description = "Person or vendor issued to"),
                         "qidOrNote" to Schema.string(description = "QID number or note"),
                         "dateIn" to Schema.string(description = "Return date if returned, else empty"),
@@ -51,11 +52,16 @@ class UniversalPhotoIngestService(private val context: Context) {
                         "returnedBy" to Schema.string(description = "Returned by name if returned, else empty"),
                         "remarks" to Schema.string(description = "Remarks"),
                         "status" to Schema.enumeration(
-                            values = listOf(KeyStatus.RETURNED, KeyStatus.ISSUED, KeyStatus.NOT_YET_RETURNED),
+                            values = listOf(
+                                KeyStatus.RETURNED,
+                                KeyStatus.ISSUED,
+                                KeyStatus.NOT_YET_RETURNED,
+                                KeyStatus.MOVE_IN_PENDING_TCODE
+                            ),
                             description = "Key status"
                         )
                     ),
-                    optionalProperties = listOf("dateIn", "timeIn", "returnedBy", "remarks", "qidOrNote")
+                    optionalProperties = listOf("issuedBy", "dateIn", "timeIn", "returnedBy", "remarks", "qidOrNote")
                 )
             )
         )
@@ -216,7 +222,8 @@ class UniversalPhotoIngestService(private val context: Context) {
                             timeIn = o.optString("timeIn"),
                             returnedBy = o.optString("returnedBy"),
                             remarks = o.optString("remarks"),
-                            status = o.optString("status", KeyStatus.ISSUED)
+                            status = o.optString("status", KeyStatus.ISSUED),
+                            issuedBy = o.optString("issuedBy")
                         )
                     }
                     val filtered = TestRecordFilter.filterKeyRecords(rawKeys)

@@ -1,11 +1,12 @@
 package com.example.data.sync
 
-import android.util.Xml
 import com.example.data.db.KeyRegisterEntity
 import com.example.data.db.MaintenanceRequestEntity
 import com.example.data.db.SportsBookingEntity
 import com.example.data.db.VisitorDayEntity
-import org.xmlpull.v1.XmlPullParser
+import org.xml.sax.Attributes
+import org.xml.sax.helpers.DefaultHandler
+import javax.xml.parsers.SAXParserFactory
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.io.OutputStream
@@ -25,16 +26,65 @@ data class ImportedWorkbookBundle(
     val skippedTestRecords: Int = 0
 )
 
+data class InspectionExportItem(
+    val id: String,
+    val area: String,
+    val finding: String,
+    val severity: String,
+    val actionRequired: String,
+    val jpegBytes: ByteArray? = null
+)
+
 /**
  * Pure-Kotlin OOXML (.xlsx) reader & writer for Masaken Mesaimeer Ops workbooks.
- * Preserves red cell fill styling strictly for unreturned/active issued keys on export.
+ * - Preserves red cell fill styling strictly for genuinely unreturned non-move-in keys.
+ * - Uses amber highlight for Move-In keys awaiting Mr. Shajith T-code follow-up.
+ * - Always populates "Issued By" as "Mr. Rodel Cabrales" on exported Key Register workbooks.
+ * - Embeds JPEG inspection photos directly inside Excel rows via DrawingML twoCellAnchor.
  */
 object XlsxEngine {
+
+    const val EXPORT_ISSUED_BY_DEFAULT = "Mr. Rodel Cabrales"
 
     private const val STYLE_DEFAULT = 0
     private const val STYLE_HEADER = 1
     private const val STYLE_RED_ALERT = 2
     private const val STYLE_RETURNED = 3
+    private const val STYLE_MOVE_IN_AMBER = 4
+
+    private data class StyledCell(
+        val value: String,
+        val isNumber: Boolean = false,
+        val styleId: Int = STYLE_DEFAULT
+    )
+
+    private data class RowData(
+        val cells: List<StyledCell>,
+        val heightPt: Double? = null
+    )
+
+    private data class ColumnWidthSpec(
+        val minCol: Int,
+        val maxCol: Int,
+        val width: Double
+    )
+
+    private data class DrawingImagePlacement(
+        val rowZeroBased: Int,
+        val colZeroBased: Int,
+        val relId: String,
+        val zipMediaPath: String,
+        val relTargetPath: String,
+        val name: String,
+        val jpegBytes: ByteArray
+    )
+
+    private data class SheetSpec(
+        val name: String,
+        val rows: List<RowData>,
+        val colWidths: List<ColumnWidthSpec> = emptyList(),
+        val images: List<DrawingImagePlacement> = emptyList()
+    )
 
     fun writeAllWorkbooksXlsx(
         output: OutputStream,
@@ -44,25 +94,230 @@ object XlsxEngine {
         sports: List<SportsBookingEntity>
     ) {
         val sheets = listOf(
-            "Key Register" to buildKeyRows(keys),
-            "PM Visitors 2026" to buildVisitorRows(visitors),
-            "Maintenance Log" to buildMaintenanceRows(maintenance),
-            "November 2026" to buildSportsRows(sports)
+            SheetSpec(
+                name = "Key Register",
+                rows = buildKeyRows(keys).map { RowData(it) },
+                colWidths = keyColumnWidths()
+            ),
+            SheetSpec(
+                name = "PM Visitors 2026",
+                rows = buildVisitorRows(visitors).map { RowData(it) },
+                colWidths = visitorColumnWidths()
+            ),
+            SheetSpec(
+                name = "Maintenance Log",
+                rows = buildMaintenanceRows(maintenance).map { RowData(it) }
+            ),
+            SheetSpec(
+                name = "November 2026",
+                rows = buildSportsRows(sports).map { RowData(it) },
+                colWidths = sportsColumnWidths()
+            )
         )
         writeXlsxPackage(output, sheets)
     }
 
-    private data class StyledCell(val value: String, val isNumber: Boolean = false, val styleId: Int = STYLE_DEFAULT)
+    fun writeKeyRegisterXlsx(
+        output: OutputStream,
+        keys: List<KeyRegisterEntity>,
+        sheetTitle: String = "Key Register"
+    ) {
+        writeXlsxPackage(
+            output,
+            listOf(
+                SheetSpec(
+                    name = sanitizeSheetName(sheetTitle),
+                    rows = buildKeyRows(keys).map { RowData(it) },
+                    colWidths = keyColumnWidths()
+                )
+            )
+        )
+    }
+
+    fun writeVisitorsXlsx(
+        output: OutputStream,
+        visitors: List<VisitorDayEntity>,
+        sheetTitle: String = "PM Visitors 2026"
+    ) {
+        writeXlsxPackage(
+            output,
+            listOf(
+                SheetSpec(
+                    name = sanitizeSheetName(sheetTitle),
+                    rows = buildVisitorRows(visitors).map { RowData(it) },
+                    colWidths = visitorColumnWidths()
+                )
+            )
+        )
+    }
+
+    fun writeSportsXlsx(
+        output: OutputStream,
+        sports: List<SportsBookingEntity>,
+        sheetTitle: String = "November 2026"
+    ) {
+        writeXlsxPackage(
+            output,
+            listOf(
+                SheetSpec(
+                    name = sanitizeSheetName(sheetTitle),
+                    rows = buildSportsRows(sports).map { RowData(it) },
+                    colWidths = sportsColumnWidths()
+                )
+            )
+        )
+    }
+
+    fun writeVisitorsAndMaintenanceXlsx(
+        output: OutputStream,
+        visitors: List<VisitorDayEntity>,
+        maintenance: List<MaintenanceRequestEntity>
+    ) {
+        writeXlsxPackage(
+            output,
+            listOf(
+                SheetSpec(
+                    name = "PM Visitors 2026",
+                    rows = buildVisitorRows(visitors).map { RowData(it) },
+                    colWidths = visitorColumnWidths()
+                ),
+                SheetSpec(
+                    name = "Maintenance Log",
+                    rows = buildMaintenanceRows(maintenance).map { RowData(it) },
+                    colWidths = listOf(
+                        ColumnWidthSpec(1, 1, 8.0),
+                        ColumnWidthSpec(2, 2, 14.0),
+                        ColumnWidthSpec(3, 4, 20.0),
+                        ColumnWidthSpec(5, 7, 18.0),
+                        ColumnWidthSpec(8, 8, 38.0)
+                    )
+                )
+            )
+        )
+    }
+
+    /**
+     * Generates a structured Building Inspection .xlsx workbook grouped by inspection Area,
+     * embedding each photo directly inside Column F of its corresponding Excel row via DrawingML.
+     */
+    fun writeInspectionReportXlsx(
+        output: OutputStream,
+        buildingName: String,
+        inspectionDate: String,
+        inspectorName: String,
+        items: List<InspectionExportItem>
+    ) {
+        val grouped = items.groupBy { it.area.trim().ifBlank { "General Area" } }
+        val rows = mutableListOf<RowData>()
+        val placements = mutableListOf<DrawingImagePlacement>()
+
+        rows.add(
+            RowData(
+                cells = listOf(
+                    StyledCell("Masaken Mesaimeer Inspection", styleId = STYLE_HEADER),
+                    StyledCell(buildingName.ifBlank { "Property Building" }, styleId = STYLE_HEADER),
+                    StyledCell("Date: $inspectionDate", styleId = STYLE_HEADER),
+                    StyledCell("Inspector: $inspectorName", styleId = STYLE_HEADER),
+                    StyledCell("Items: ${items.size}", styleId = STYLE_HEADER),
+                    StyledCell("Photos Embedded in Column F", styleId = STYLE_HEADER)
+                ),
+                heightPt = 24.0
+            )
+        )
+        rows.add(
+            RowData(
+                cells = listOf(
+                    "Item #",
+                    "Area / Zone",
+                    "Inspection Finding",
+                    "Severity",
+                    "Action Required",
+                    "Photo"
+                ).map { StyledCell(it, styleId = STYLE_HEADER) },
+                heightPt = 22.0
+            )
+        )
+
+        var itemNumber = 1
+        var mediaIndex = 1
+
+        grouped.forEach { (areaName, areaItems) ->
+            areaItems.forEach { item ->
+                val rowIdxOneBased = rows.size + 1
+                val severityLower = item.severity.trim().lowercase(Locale.ROOT)
+                val sevStyle = when {
+                    severityLower.contains("urgent") || severityLower.contains("critical") || severityLower.contains("fail") -> STYLE_RED_ALERT
+                    severityLower.contains("minor") || severityLower.contains("warn") || severityLower.contains("follow") -> STYLE_MOVE_IN_AMBER
+                    else -> STYLE_RETURNED
+                }
+                val bytes = item.jpegBytes?.takeIf { it.isNotEmpty() }
+                val hasPhoto = bytes != null
+                if (bytes != null) {
+                    placements.add(
+                        DrawingImagePlacement(
+                            rowZeroBased = rowIdxOneBased - 1,
+                            colZeroBased = 5, // Column F (0-indexed 5)
+                            relId = "rId$mediaIndex",
+                            zipMediaPath = "xl/media/image$mediaIndex.jpg",
+                            relTargetPath = "../media/image$mediaIndex.jpg",
+                            name = "Inspection_${itemNumber}_${areaName.replace(" ", "_")}",
+                            jpegBytes = bytes
+                        )
+                    )
+                    mediaIndex++
+                }
+                rows.add(
+                    RowData(
+                        cells = listOf(
+                            StyledCell(itemNumber.toString(), isNumber = true),
+                            StyledCell(areaName),
+                            StyledCell(item.finding.ifBlank { "-" }),
+                            StyledCell(item.severity.ifBlank { "Pass" }, styleId = sevStyle),
+                            StyledCell(item.actionRequired.ifBlank { "None" }),
+                            StyledCell(if (hasPhoto) "" else "No photo attached")
+                        ),
+                        heightPt = if (hasPhoto) 108.0 else 22.0
+                    )
+                )
+                itemNumber++
+            }
+        }
+
+        val colWidths = listOf(
+            ColumnWidthSpec(1, 1, 9.0),
+            ColumnWidthSpec(2, 2, 22.0),
+            ColumnWidthSpec(3, 3, 38.0),
+            ColumnWidthSpec(4, 4, 14.0),
+            ColumnWidthSpec(5, 5, 34.0),
+            ColumnWidthSpec(6, 6, 30.0)
+        )
+
+        writeXlsxPackage(
+            output,
+            listOf(
+                SheetSpec(
+                    name = "Inspection Report",
+                    rows = rows,
+                    colWidths = colWidths,
+                    images = placements
+                )
+            )
+        )
+    }
 
     private fun buildKeyRows(keys: List<KeyRegisterEntity>): List<List<StyledCell>> {
         val headers = listOf(
             "SI", "Date Out", "Time Out", "Flat / Unit / Location", "Key / Card Type",
-            "Purpose", "Issued To (Q-Out)", "QID / ID or Note", "Date In", "Time In",
-            "Returned By (Q-In)", "Remarks", "Status"
+            "Purpose", "Issued By", "Issued To (Q-Out)", "QID / ID or Note",
+            "Date In", "Time In", "Returned By (Q-In)", "Remarks", "Status"
         ).map { StyledCell(it, styleId = STYLE_HEADER) }
 
         val rows = keys.sortedBy { it.si }.map { k ->
-            val rowStyle = if (k.isUnreturnedAlert) STYLE_RED_ALERT else STYLE_RETURNED
+            val rowStyle = when {
+                k.isUnreturnedAlert -> STYLE_RED_ALERT
+                k.isMoveInPendingTCode -> STYLE_MOVE_IN_AMBER
+                else -> STYLE_RETURNED
+            }
             listOf(
                 StyledCell(k.si.toString(), isNumber = true, styleId = rowStyle),
                 StyledCell(k.dateOut, styleId = rowStyle),
@@ -70,6 +325,8 @@ object XlsxEngine {
                 StyledCell(k.flatUnitLocation, styleId = rowStyle),
                 StyledCell(k.keyCardType, styleId = rowStyle),
                 StyledCell(k.purpose, styleId = rowStyle),
+                // Operational export requirement: Excel workbook Issued By column normalizes to Mr. Rodel Cabrales
+                StyledCell(EXPORT_ISSUED_BY_DEFAULT, styleId = rowStyle),
                 StyledCell(k.issuedTo, styleId = rowStyle),
                 StyledCell(k.qidOrNote, styleId = rowStyle),
                 StyledCell(k.dateIn, styleId = rowStyle),
@@ -150,15 +407,78 @@ object XlsxEngine {
         return listOf(headers) + rows
     }
 
-    private fun writeXlsxPackage(output: OutputStream, sheets: List<Pair<String, List<List<StyledCell>>>>) {
+    private fun keyColumnWidths(): List<ColumnWidthSpec> = listOf(
+        ColumnWidthSpec(1, 1, 8.0),
+        ColumnWidthSpec(2, 3, 13.0),
+        ColumnWidthSpec(4, 4, 18.0),
+        ColumnWidthSpec(5, 6, 20.0),
+        ColumnWidthSpec(7, 8, 22.0),
+        ColumnWidthSpec(9, 13, 16.0),
+        ColumnWidthSpec(14, 14, 24.0)
+    )
+
+    private fun visitorColumnWidths(): List<ColumnWidthSpec> = listOf(
+        ColumnWidthSpec(1, 1, 15.0),
+        ColumnWidthSpec(2, 3, 18.0),
+        ColumnWidthSpec(4, 4, 28.0),
+        ColumnWidthSpec(5, 5, 24.0)
+    )
+
+    private fun sportsColumnWidths(): List<ColumnWidthSpec> = listOf(
+        ColumnWidthSpec(1, 1, 7.0),
+        ColumnWidthSpec(2, 4, 14.0),
+        ColumnWidthSpec(5, 5, 22.0),
+        ColumnWidthSpec(6, 10, 16.0)
+    )
+
+    private fun sanitizeSheetName(name: String): String {
+        val cleaned = name.replace(Regex("[\\\\/*?:\\[\\]]"), "-").trim()
+        return cleaned.take(31).ifBlank { "Sheet1" }
+    }
+
+    private fun writeXlsxPackage(output: OutputStream, sheets: List<SheetSpec>) {
+        val drawingSheetIndices = mutableListOf<Int>()
+        sheets.forEachIndexed { idx, spec ->
+            if (spec.images.isNotEmpty()) {
+                drawingSheetIndices.add(idx + 1)
+            }
+        }
+
         ZipOutputStream(output).use { zip ->
-            writeZipEntry(zip, "[Content_Types].xml", buildContentTypesXml(sheets.size))
+            writeZipEntry(zip, "[Content_Types].xml", buildContentTypesXml(sheets.size, drawingSheetIndices))
             writeZipEntry(zip, "_rels/.rels", rootRelsXml())
             writeZipEntry(zip, "xl/_rels/workbook.xml.rels", buildWorkbookRelsXml(sheets.size))
-            writeZipEntry(zip, "xl/workbook.xml", buildWorkbookXml(sheets.map { it.first }))
+            writeZipEntry(zip, "xl/workbook.xml", buildWorkbookXml(sheets.map { it.name }))
             writeZipEntry(zip, "xl/styles.xml", buildStylesXml())
-            sheets.forEachIndexed { idx, (_, rows) ->
-                writeZipEntry(zip, "xl/worksheets/sheet${idx + 1}.xml", buildWorksheetXml(rows))
+
+            sheets.forEachIndexed { idx, spec ->
+                val sheetNum = idx + 1
+                val hasDrawings = spec.images.isNotEmpty()
+                writeZipEntry(
+                    zip,
+                    "xl/worksheets/sheet$sheetNum.xml",
+                    buildWorksheetXml(spec.rows, spec.colWidths, hasDrawings)
+                )
+                if (hasDrawings) {
+                    writeZipEntry(
+                        zip,
+                        "xl/worksheets/_rels/sheet$sheetNum.xml.rels",
+                        buildSheetDrawingRelsXml(sheetNum)
+                    )
+                    writeZipEntry(
+                        zip,
+                        "xl/drawings/drawing$sheetNum.xml",
+                        buildDrawingXml(spec.images)
+                    )
+                    writeZipEntry(
+                        zip,
+                        "xl/drawings/_rels/drawing$sheetNum.xml.rels",
+                        buildDrawingRelsXml(spec.images)
+                    )
+                    spec.images.forEach { placement ->
+                        writeZipBinaryEntry(zip, placement.zipMediaPath, placement.jpegBytes)
+                    }
+                }
             }
         }
     }
@@ -169,15 +489,27 @@ object XlsxEngine {
         zip.closeEntry()
     }
 
-    private fun buildContentTypesXml(sheetCount: Int): String = buildString {
+    private fun writeZipBinaryEntry(zip: ZipOutputStream, name: String, bytes: ByteArray) {
+        zip.putNextEntry(ZipEntry(name))
+        zip.write(bytes)
+        zip.closeEntry()
+    }
+
+    private fun buildContentTypesXml(sheetCount: Int, drawingSheetIndices: List<Int>): String = buildString {
         append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
         append("""<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">""")
         append("""<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>""")
         append("""<Default Extension="xml" ContentType="application/xml"/>""")
+        if (drawingSheetIndices.isNotEmpty()) {
+            append("""<Default Extension="jpg" ContentType="image/jpeg"/>""")
+        }
         append("""<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>""")
         append("""<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>""")
         for (i in 1..sheetCount) {
             append("""<Override PartName="/xl/worksheets/sheet$i.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>""")
+        }
+        for (d in drawingSheetIndices) {
+            append("""<Override PartName="/xl/drawings/drawing$d.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>""")
         }
         append("""</Types>""")
     }
@@ -210,17 +542,19 @@ object XlsxEngine {
 
     private fun buildStylesXml(): String = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="3">
+  <fonts count="4">
     <font><sz val="11"/><color rgb="FF111827"/><name val="Calibri"/></font>
     <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
     <font><b/><sz val="11"/><color rgb="FF991B1B"/><name val="Calibri"/></font>
+    <font><b/><sz val="11"/><color rgb="FF92400E"/><name val="Calibri"/></font>
   </fonts>
-  <fills count="5">
+  <fills count="6">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FF0F172A"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFFFCDD2"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFECFDF5"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/></patternFill></fill>
   </fills>
   <borders count="1">
     <border><left/><right/><top/><bottom/><diagonal/></border>
@@ -228,21 +562,42 @@ object XlsxEngine {
   <cellStyleXfs count="1">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
   </cellStyleXfs>
-  <cellXfs count="4">
+  <cellXfs count="5">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
     <xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
     <xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/>
+    <xf numFmtId="0" fontId="3" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1"/>
   </cellXfs>
 </styleSheet>"""
 
-    private fun buildWorksheetXml(rows: List<List<StyledCell>>): String = buildString {
+    private fun buildWorksheetXml(
+        rows: List<RowData>,
+        colWidths: List<ColumnWidthSpec>,
+        hasDrawings: Boolean
+    ): String = buildString {
         append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
-        append("""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>""")
-        rows.forEachIndexed { rowIdx, cells ->
+        if (hasDrawings) {
+            append("""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">""")
+        } else {
+            append("""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">""")
+        }
+        if (colWidths.isNotEmpty()) {
+            append("""<cols>""")
+            colWidths.forEach { w ->
+                append("""<col min="${w.minCol}" max="${w.maxCol}" width="${w.width}" customWidth="1"/>""")
+            }
+            append("""</cols>""")
+        }
+        append("""<sheetData>""")
+        rows.forEachIndexed { rowIdx, rowData ->
             val r = rowIdx + 1
-            append("""<row r="$r">""")
-            cells.forEachIndexed { colIdx, cell ->
+            if (rowData.heightPt != null) {
+                append("""<row r="$r" ht="${rowData.heightPt}" customHeight="1">""")
+            } else {
+                append("""<row r="$r">""")
+            }
+            rowData.cells.forEachIndexed { colIdx, cell ->
                 val ref = "${colLetter(colIdx)}$r"
                 val numVal = cell.value.toDoubleOrNull()
                 if (cell.isNumber && numVal != null) {
@@ -253,7 +608,46 @@ object XlsxEngine {
             }
             append("""</row>""")
         }
-        append("""</sheetData></worksheet>""")
+        append("""</sheetData>""")
+        if (hasDrawings) {
+            append("""<drawing r:id="rId1"/>""")
+        }
+        append("""</worksheet>""")
+    }
+
+    private fun buildSheetDrawingRelsXml(sheetNum: Int): String =
+        """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""" +
+            """<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">""" +
+            """<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing$sheetNum.xml"/>""" +
+            """</Relationships>"""
+
+    private fun buildDrawingRelsXml(images: List<DrawingImagePlacement>): String = buildString {
+        append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+        append("""<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">""")
+        images.forEach { p ->
+            append("""<Relationship Id="${p.relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="${p.relTargetPath}"/>""")
+        }
+        append("""</Relationships>""")
+    }
+
+    private fun buildDrawingXml(images: List<DrawingImagePlacement>): String = buildString {
+        append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+        append("""<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">""")
+        images.forEachIndexed { idx, p ->
+            val picId = idx + 1
+            // Two-cell anchor keeping photo cleanly padded inside target Excel row & column
+            append("""<xdr:twoCellAnchor editAs="oneCell">""")
+            append("""<xdr:from><xdr:col>${p.colZeroBased}</xdr:col><xdr:colOff>38100</xdr:colOff><xdr:row>${p.rowZeroBased}</xdr:row><xdr:rowOff>38100</xdr:rowOff></xdr:from>""")
+            append("""<xdr:to><xdr:col>${p.colZeroBased + 1}</xdr:col><xdr:colOff>-38100</xdr:colOff><xdr:row>${p.rowZeroBased + 1}</xdr:row><xdr:rowOff>-38100</xdr:rowOff></xdr:to>""")
+            append("""<xdr:pic>""")
+            append("""<xdr:nvPicPr><xdr:cNvPr id="$picId" name="${escapeXml(p.name)}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>""")
+            append("""<xdr:blipFill><a:blip r:embed="${p.relId}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>""")
+            append("""<xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>""")
+            append("""</xdr:pic>""")
+            append("""<xdr:clientData/>""")
+            append("""</xdr:twoCellAnchor>""")
+        }
+        append("""</xdr:wsDr>""")
     }
 
     private fun colLetter(index: Int): String {
@@ -328,7 +722,8 @@ object XlsxEngine {
                             timeIn = colValue(r, headers, "time in"),
                             returnedBy = colValue(r, headers, "returned by"),
                             remarks = colValue(r, headers, "remarks"),
-                            status = colValue(r, headers, "status").ifBlank { "Key issued" }
+                            status = colValue(r, headers, "status").ifBlank { "Key issued" },
+                            issuedBy = colValue(r, headers, "issued by")
                         )
                         if (TestRecordFilter.isDeletedTestKeyRecord(entry)) {
                             skippedTest++
@@ -417,89 +812,116 @@ object XlsxEngine {
 
     private fun parseSharedStrings(bytes: ByteArray): List<String> {
         val list = mutableListOf<String>()
-        val parser = Xml.newPullParser()
-        parser.setInput(ByteArrayInputStream(bytes), "UTF-8")
-        var insideSi = false
-        val current = StringBuilder()
-        var event = parser.eventType
-        while (event != XmlPullParser.END_DOCUMENT) {
-            when (event) {
-                XmlPullParser.START_TAG -> {
-                    if (parser.name == "si") {
+        val factory = SAXParserFactory.newInstance().apply { isNamespaceAware = true }
+        val parser = factory.newSAXParser()
+        parser.parse(ByteArrayInputStream(bytes), object : DefaultHandler() {
+            private var insideSi = false
+            private var insideT = false
+            private val current = StringBuilder()
+
+            override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes?) {
+                val tag = localName?.ifBlank { null } ?: qName.orEmpty()
+                when (tag) {
+                    "si" -> {
                         insideSi = true
                         current.clear()
-                    } else if (insideSi && parser.name == "t") {
-                        current.append(parser.nextText())
                     }
+                    "t" -> if (insideSi) insideT = true
                 }
-                XmlPullParser.END_TAG -> {
-                    if (parser.name == "si") {
+            }
+
+            override fun characters(ch: CharArray, start: Int, length: Int) {
+                if (insideSi && insideT) {
+                    current.append(ch, start, length)
+                }
+            }
+
+            override fun endElement(uri: String?, localName: String?, qName: String?) {
+                val tag = localName?.ifBlank { null } ?: qName.orEmpty()
+                when (tag) {
+                    "t" -> insideT = false
+                    "si" -> {
                         list.add(current.toString())
                         insideSi = false
                     }
                 }
             }
-            event = parser.next()
-        }
+        })
         return list
     }
 
     private fun parseWorksheet(bytes: ByteArray, sharedStrings: List<String>): List<List<String>> {
         val rows = mutableListOf<List<String>>()
-        val parser = Xml.newPullParser()
-        parser.setInput(ByteArrayInputStream(bytes), "UTF-8")
+        val factory = SAXParserFactory.newInstance().apply { isNamespaceAware = true }
+        val parser = factory.newSAXParser()
+        parser.parse(ByteArrayInputStream(bytes), object : DefaultHandler() {
+            private var currentRow = mutableListOf<String>()
+            private var currentColIdx = 0
+            private var cellType = ""
+            private var inCell = false
+            private var captureText = false
+            private val textBuf = StringBuilder()
+            private var cellValue = ""
 
-        var currentRow = mutableListOf<String>()
-        var currentColIdx = 0
-        var cellType = ""
-        var inCell = false
-        var cellValue = ""
-
-        var event = parser.eventType
-        while (event != XmlPullParser.END_DOCUMENT) {
-            when (event) {
-                XmlPullParser.START_TAG -> {
-                    when (parser.name) {
-                        "row" -> currentRow = mutableListOf()
-                        "c" -> {
-                            inCell = true
-                            cellValue = ""
-                            cellType = parser.getAttributeValue(null, "t") ?: ""
-                            val ref = parser.getAttributeValue(null, "r") ?: ""
-                            currentColIdx = refToColIndex(ref, currentRow.size)
-                            while (currentRow.size < currentColIdx) {
-                                currentRow.add("")
-                            }
-                        }
-                        "v" -> if (inCell) {
-                            val raw = parser.nextText()
-                            cellValue = if (cellType == "s") {
-                                raw.toIntOrNull()?.let { sharedStrings.getOrNull(it) } ?: ""
-                            } else {
-                                raw
-                            }
-                        }
-                        "t" -> if (inCell && cellType == "inlineStr") {
-                            cellValue = parser.nextText()
+            override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes?) {
+                val tag = localName?.ifBlank { null } ?: qName.orEmpty()
+                when (tag) {
+                    "row" -> currentRow = mutableListOf()
+                    "c" -> {
+                        inCell = true
+                        cellValue = ""
+                        cellType = attributes?.getValue("t").orEmpty()
+                        val ref = attributes?.getValue("r").orEmpty()
+                        currentColIdx = refToColIndex(ref, currentRow.size)
+                        while (currentRow.size < currentColIdx) {
+                            currentRow.add("")
                         }
                     }
-                }
-                XmlPullParser.END_TAG -> {
-                    when (parser.name) {
-                        "c" -> {
-                            if (currentColIdx < currentRow.size) {
-                                currentRow[currentColIdx] = cellValue
-                            } else {
-                                currentRow.add(cellValue)
-                            }
-                            inCell = false
-                        }
-                        "row" -> if (currentRow.any { it.isNotBlank() }) rows.add(currentRow)
+                    "v" -> if (inCell) {
+                        captureText = true
+                        textBuf.clear()
+                    }
+                    "t" -> if (inCell && cellType == "inlineStr") {
+                        captureText = true
+                        textBuf.clear()
                     }
                 }
             }
-            event = parser.next()
-        }
+
+            override fun characters(ch: CharArray, start: Int, length: Int) {
+                if (captureText) {
+                    textBuf.append(ch, start, length)
+                }
+            }
+
+            override fun endElement(uri: String?, localName: String?, qName: String?) {
+                val tag = localName?.ifBlank { null } ?: qName.orEmpty()
+                when (tag) {
+                    "v" -> if (inCell && captureText) {
+                        captureText = false
+                        val raw = textBuf.toString()
+                        cellValue = if (cellType == "s") {
+                            raw.toIntOrNull()?.let { sharedStrings.getOrNull(it) } ?: ""
+                        } else {
+                            raw
+                        }
+                    }
+                    "t" -> if (inCell && cellType == "inlineStr" && captureText) {
+                        captureText = false
+                        cellValue = textBuf.toString()
+                    }
+                    "c" -> {
+                        if (currentColIdx < currentRow.size) {
+                            currentRow[currentColIdx] = cellValue
+                        } else {
+                            currentRow.add(cellValue)
+                        }
+                        inCell = false
+                    }
+                    "row" -> if (currentRow.any { it.isNotBlank() }) rows.add(currentRow)
+                }
+            }
+        })
         return rows
     }
 

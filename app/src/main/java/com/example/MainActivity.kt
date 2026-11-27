@@ -1,6 +1,7 @@
 package com.example
 
 import android.Manifest
+import android.app.Activity
 import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.os.Bundle
@@ -22,10 +23,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.SportsSoccer
+import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Key
@@ -76,6 +79,7 @@ import com.example.ui.components.opsScreenExitTransition
 import com.example.ui.screens.AuthScreen
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.KeyRegisterScreen
+import com.example.ui.screens.ReportsScreen
 import com.example.ui.screens.SportsBookingScreen
 import com.example.ui.screens.VisitorsMaintenanceScreen
 import com.example.ui.theme.LocalReducedMotion
@@ -98,6 +102,7 @@ const val ROUTE_DASHBOARD = "dashboard"
 const val ROUTE_KEYS = "keys"
 const val ROUTE_VISITORS = "visitors"
 const val ROUTE_SPORTS = "sports"
+const val ROUTE_REPORTS = "reports"
 
 private data class OpsDestination(
     val route: String,
@@ -110,7 +115,8 @@ private val opsDestinations = listOf(
     OpsDestination(ROUTE_DASHBOARD, "Home", Icons.Filled.Dashboard, Icons.Outlined.Dashboard),
     OpsDestination(ROUTE_KEYS, "Keys", Icons.Filled.Key, Icons.Outlined.Key),
     OpsDestination(ROUTE_VISITORS, "PM Log", Icons.Filled.Groups, Icons.Outlined.Groups),
-    OpsDestination(ROUTE_SPORTS, "Sports", Icons.Filled.SportsSoccer, Icons.Outlined.SportsSoccer)
+    OpsDestination(ROUTE_SPORTS, "Sports", Icons.Filled.SportsSoccer, Icons.Outlined.SportsSoccer),
+    OpsDestination(ROUTE_REPORTS, "Reports", Icons.Filled.Assessment, Icons.Outlined.Assessment)
 )
 
 class MainActivity : ComponentActivity() {
@@ -195,25 +201,40 @@ private fun MasakenOpsRoot(
     onSignOut: () -> Unit
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val navController = rememberNavController()
     val snackbarHostState = remember { SnackbarHostState() }
 
     val cloudSyncState by opsViewModel.cloudSyncState.collectAsStateWithLifecycle()
+    val rtdbSyncState by opsViewModel.rtdbSyncState.collectAsStateWithLifecycle()
+    val rtdbUrl by opsViewModel.rtdbUrl.collectAsStateWithLifecycle()
+
     val keys by opsViewModel.keys.collectAsStateWithLifecycle()
     val filteredKeys by opsViewModel.filteredKeys.collectAsStateWithLifecycle()
     val keyFilter by opsViewModel.keyFilter.collectAsStateWithLifecycle()
+    val keyDateFilter by opsViewModel.keyDateFilter.collectAsStateWithLifecycle()
     val keyQuery by opsViewModel.keyQuery.collectAsStateWithLifecycle()
 
     val visitors by opsViewModel.visitors.collectAsStateWithLifecycle()
+    val visitorQuery by opsViewModel.visitorQuery.collectAsStateWithLifecycle()
     val maintenance by opsViewModel.filteredMaintenance.collectAsStateWithLifecycle()
     val maintenanceQuery by opsViewModel.maintenanceQuery.collectAsStateWithLifecycle()
 
     val sports by opsViewModel.sportsBookings.collectAsStateWithLifecycle()
     val filteredSports by opsViewModel.filteredSports.collectAsStateWithLifecycle()
     val sportFilter by opsViewModel.sportFilter.collectAsStateWithLifecycle()
+    val sportDateFilter by opsViewModel.sportDateFilter.collectAsStateWithLifecycle()
     val sportQuery by opsViewModel.sportQuery.collectAsStateWithLifecycle()
 
     val reminders by opsViewModel.reminders.collectAsStateWithLifecycle()
+    val inspectionDrafts by opsViewModel.inspectionDrafts.collectAsStateWithLifecycle()
+    val inspectionReports by opsViewModel.inspectionReports.collectAsStateWithLifecycle()
+    val reportDispatches by opsViewModel.reportDispatches.collectAsStateWithLifecycle()
+    val localArchiveFiles by opsViewModel.localArchiveFiles.collectAsStateWithLifecycle()
+    val isAnalyzingInspection by opsViewModel.isAnalyzingInspection.collectAsStateWithLifecycle()
+    val isGeneratingReport by opsViewModel.isGeneratingReport.collectAsStateWithLifecycle()
+    val pendingEmailDraft by opsViewModel.pendingEmailDraft.collectAsStateWithLifecycle()
+
     val aiVisionState by opsViewModel.aiVisionState.collectAsStateWithLifecycle()
     val ingestState by opsViewModel.ingestState.collectAsStateWithLifecycle()
 
@@ -226,6 +247,14 @@ private fun MasakenOpsRoot(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasNotifPermission = granted
+    }
+
+    val workspaceAuthLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (activity != null) {
+            opsViewModel.onWorkspaceAuthResolutionResult(activity, result.data)
+        }
     }
 
     var pendingCsvTarget by remember { mutableStateOf("keys") }
@@ -254,8 +283,14 @@ private fun MasakenOpsRoot(
         }
     }
 
+    LaunchedEffect(Unit) {
+        opsViewModel.workspaceAuthLauncherRequest.collect { request ->
+            workspaceAuthLauncher.launch(request)
+        }
+    }
+
     LaunchedEffect(initialNavTarget) {
-        if (initialNavTarget in listOf(ROUTE_DASHBOARD, ROUTE_KEYS, ROUTE_VISITORS, ROUTE_SPORTS)) {
+        if (initialNavTarget in listOf(ROUTE_DASHBOARD, ROUTE_KEYS, ROUTE_VISITORS, ROUTE_SPORTS, ROUTE_REPORTS)) {
             navController.navigate(initialNavTarget!!) {
                 launchSingleTop = true
             }
@@ -264,7 +299,7 @@ private fun MasakenOpsRoot(
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route ?: ROUTE_DASHBOARD
-    val unreturnedCount = remember(keys) { keys.count { it.isUnreturnedAlert } }
+    val unreturnedCount = remember(keys) { keys.count { it.isCurrentMonthUnreturnedAlert } }
 
     fun navigateTo(route: String) {
         navController.navigate(route) {
@@ -392,6 +427,7 @@ private fun MasakenOpsRoot(
                                 onNavigateToKeys = { navigateTo(ROUTE_KEYS) },
                                 onNavigateToVisitors = { navigateTo(ROUTE_VISITORS) },
                                 onNavigateToSports = { navigateTo(ROUTE_SPORTS) },
+                                onNavigateToReports = { navigateTo(ROUTE_REPORTS) },
                                 onPlusOneVisitor = opsViewModel::incrementTodayVisitor,
                                 onPlusOneViewing = opsViewModel::incrementTodayViewing,
                                 onToggleDailyStep = opsViewModel::toggleChecklistItem,
@@ -410,6 +446,10 @@ private fun MasakenOpsRoot(
                                 },
                                 operatorLabel = operatorLabel,
                                 cloudSyncState = cloudSyncState,
+                                rtdbUrl = rtdbUrl,
+                                rtdbSyncState = rtdbSyncState,
+                                onSaveRtdbUrl = opsViewModel::saveRtdbUrl,
+                                onSyncRtdbNow = opsViewModel::syncAllToRealtimeDb,
                                 onSignOut = onSignOut
                             )
                         }
@@ -419,8 +459,12 @@ private fun MasakenOpsRoot(
                                 allKeys = keys,
                                 filteredKeys = filteredKeys,
                                 selectedFilter = keyFilter,
+                                selectedDateFilter = keyDateFilter,
                                 searchQuery = keyQuery,
                                 onSelectFilter = opsViewModel::setKeyFilter,
+                                onJumpToSummaryFilter = opsViewModel::jumpToKeySummaryFilter,
+                                onResetFilters = opsViewModel::resetAllKeyFilters,
+                                onSelectDateFilter = opsViewModel::setKeyDateFilter,
                                 onSearchQueryChange = opsViewModel::setKeyQuery,
                                 onAllocateNextSi = opsViewModel::allocateNextKeySi,
                                 onSaveKeyEntry = opsViewModel::saveKeyEntry,
@@ -441,7 +485,9 @@ private fun MasakenOpsRoot(
                             VisitorsMaintenanceScreen(
                                 visitors = visitors,
                                 maintenance = maintenance,
+                                visitorQuery = visitorQuery,
                                 maintenanceQuery = maintenanceQuery,
+                                onVisitorQueryChange = opsViewModel::setVisitorQuery,
                                 onMaintenanceQueryChange = opsViewModel::setMaintenanceQuery,
                                 onPlusOneVisitor = opsViewModel::incrementTodayVisitor,
                                 onPlusOneViewing = opsViewModel::incrementTodayViewing,
@@ -468,9 +514,11 @@ private fun MasakenOpsRoot(
                                 allBookings = sports,
                                 filteredBookings = filteredSports,
                                 selectedFilter = sportFilter,
+                                selectedDateFilter = sportDateFilter,
                                 searchQuery = sportQuery,
                                 aiVisionState = aiVisionState,
                                 onSelectFilter = opsViewModel::setSportFilter,
+                                onSelectDateFilter = opsViewModel::setSportDateFilter,
                                 onSearchQueryChange = opsViewModel::setSportQuery,
                                 onParseTextOffline = opsViewModel::parseTextOffline,
                                 onSavePickedPhoto = opsViewModel::savePickedBookingPhoto,
@@ -486,6 +534,38 @@ private fun MasakenOpsRoot(
                                     pendingCsvTarget = "sports"
                                     exportCsvLauncher.launch("Padel_Football_November_2026.csv")
                                 }
+                            )
+                        }
+
+                        composable(ROUTE_REPORTS) {
+                            ReportsScreen(
+                                keys = keys,
+                                visitors = visitors,
+                                maintenance = maintenance,
+                                sports = sports,
+                                inspectionDrafts = inspectionDrafts,
+                                inspectionReports = inspectionReports,
+                                reportDispatches = reportDispatches,
+                                localArchives = localArchiveFiles,
+                                isAnalyzingInspection = isAnalyzingInspection,
+                                isGeneratingReport = isGeneratingReport,
+                                pendingEmailDraft = pendingEmailDraft,
+                                onAddInspectionPhotos = opsViewModel::addInspectionPhotos,
+                                onAddManualInspectionRow = opsViewModel::addManualInspectionRow,
+                                onUpdateInspectionDraft = opsViewModel::updateInspectionDraft,
+                                onRemoveInspectionDraft = opsViewModel::removeInspectionDraft,
+                                onClearInspectionDrafts = opsViewModel::clearInspectionDrafts,
+                                onAnalyzeInspectionPhotos = opsViewModel::analyzeInspectionPhotosWithAi,
+                                onGenerateInspectionXlsx = opsViewModel::generateBuildingInspectionXlsx,
+                                onPrepareWeeklyReport = opsViewModel::prepareWeeklyReportEmail,
+                                onPrepareMonthlyReport = opsViewModel::prepareMonthlyReportEmail,
+                                onOpenBacklogXlsx = opsViewModel::openBacklogWorkbookXlsx,
+                                onOpenArchiveEmailComposer = opsViewModel::openArchivedFileEmailComposer,
+                                onSendDraftViaGmailApi = opsViewModel::sendDraftViaGmailApi,
+                                onDispatchViaMailApp = opsViewModel::dispatchViaMailAppChooser,
+                                onUploadDraftToDriveOnly = opsViewModel::uploadDraftToDriveOnly,
+                                onDismissEmailDraft = opsViewModel::dismissEmailDraft,
+                                onBackupPhoneAndDrive = opsViewModel::backupFullSnapshotToPhoneAndDrive
                             )
                         }
                     }
